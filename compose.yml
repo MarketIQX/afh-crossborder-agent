@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agents-for-humans-postgres
+
+    environment:
+      POSTGRES_DB: agents_for_humans
+      POSTGRES_USER: agents_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    volumes:
+      - agents_for_humans_pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U agents_admin -d agents_for_humans"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  agents_for_humans_pgdata:
