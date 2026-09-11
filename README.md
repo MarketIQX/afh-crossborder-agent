@@ -180,7 +180,7 @@ Individual suites:
     tests/env_contract_smoke.py                  ENV01-ENV08
     tests/db_integrity_smoke.py phase1           DB01-DB10
     tests/authority_boundary_smoke.py phase1     AUTH01-AUTH21
-    tests/agent_slice_smoke.py phase1            AGENT01-AGENT22
+    tests/agent_slice_smoke.py phase1            AGENT01-AGENT26
     tests/ingestion_smoke.py phase1              INGEST01-INGEST14
     tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
     tests/autonomy_smoke.py phase1               AUTO01-AUTO09

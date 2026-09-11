@@ -803,6 +803,152 @@ def agent18_tool_object_exposes_exactly_four_tools():
 SDK_PROVIDED_TOOLS = ("skills",)
 
 
+class _FakeToolEvent:
+    """The shape the SDK hands a hook, with nothing else attached."""
+
+    def __init__(self, name, **inputs):
+        self.tool_use = {"name": name, "input": inputs}
+        self.cancel_tool = False
+
+
+def agent23_hook_scopes_by_either_service_name():
+    """The bound service under either name is in scope; others are not.
+
+    This is the check that was missing when refusals for the bound
+    service's own key were recorded, and then described as the model
+    reaching for another service.
+    """
+    from app.agent import hooks as hooks_module
+
+    hook = hooks_module.ServiceScopeHook(
+        "10000000-0000-0000-0000-000000000001",
+        bound_service_key="nri_india_tax_filing",
+    )
+
+    allowed = (
+        None,
+        "",
+        "nri_india_tax_filing",
+        "NRI_India_Tax_Filing",
+        "10000000-0000-0000-0000-000000000001",
+    )
+
+    for candidate in allowed:
+        event = _FakeToolEvent("get_service_knowledge", service_id=candidate)
+        hook.on_before_tool_call(event)
+
+        if event.cancel_tool:
+            raise RuntimeError(
+                f"AGENT23 FAIL: the bound service was refused as "
+                f"{candidate!r}"
+            )
+
+    refused = ("nri_fema_advisory", "10000000-0000-0000-0000-000000000002")
+
+    for candidate in refused:
+        event = _FakeToolEvent("get_service_knowledge", service_id=candidate)
+        hook.on_before_tool_call(event)
+
+        if not event.cancel_tool:
+            raise RuntimeError(
+                f"AGENT23 FAIL: another service was allowed as {candidate!r}"
+            )
+
+    print("AGENT23 HOOK SCOPES BY EITHER SERVICE NAME: PASS")
+
+
+def agent24_hook_caps_repeated_tool_calls():
+    """One tool may not be called without limit inside a single run."""
+    from app.agent import hooks as hooks_module
+
+    hook = hooks_module.ToolBudgetHook(budget=2)
+    outcomes = []
+
+    for _ in range(4):
+        event = _FakeToolEvent("get_service_knowledge", query="x")
+        hook.on_before_tool_call(event)
+        outcomes.append(bool(event.cancel_tool))
+
+    if outcomes != [False, False, True, True]:
+        raise RuntimeError(f"AGENT24 FAIL: outcomes {outcomes}")
+
+    print("AGENT24 HOOK CAPS REPEATED TOOL CALLS: PASS")
+
+
+def agent25_steering_refuses_machine_words_to_a_client():
+    """The exact letter that reached a client is guided back.
+
+    Not a contrived string. This is the text that was sent, asking a
+    client to supply "days present in india preceding four years".
+    """
+    from app.agent import steering as steering_module
+
+    real_letter = (
+        "Before we can advise on your position we need a few details:\n"
+        "  1. assessment year\n"
+        "  2. country of residence\n"
+        "  3. days present in india preceding four years\n"
+    )
+
+    if not steering_module.inspect_copy(real_letter):
+        raise RuntimeError(
+            "AGENT25 FAIL: the letter that actually went out passes"
+        )
+
+    cited = (
+        "Under section 6(1)(a) of the Income-tax Act you are resident."
+    )
+
+    if not steering_module.inspect_copy(cited):
+        raise RuntimeError("AGENT25 FAIL: statute cited to a client passes")
+
+    clean = (
+        "To advise we need the number of days you spent in India during "
+        "the year to 31 March 2026, and the total for the four years "
+        "before that."
+    )
+
+    problems = steering_module.inspect_copy(clean)
+
+    if problems:
+        raise RuntimeError(f"AGENT25 FAIL: clean copy refused: {problems}")
+
+    print("AGENT25 STEERING REFUSES MACHINE WORDS TO A CLIENT: PASS")
+
+
+def agent26_steering_requires_retrieval_before_support():
+    """Support may not be claimed by a run that retrieved nothing."""
+    from app.agent import steering as steering_module
+    from strands.interventions import Guide
+
+    guard = steering_module.EvidenceFirstGuard()
+
+    claim = _FakeToolEvent(
+        "propose_next_action", decision_state="SUPPORTED_WITHIN_POLICY"
+    )
+    action = guard.before_tool_call(claim)
+
+    if not isinstance(action, Guide):
+        raise RuntimeError(
+            f"AGENT26 FAIL: unretrieved support returned {action!r}"
+        )
+
+    guard2 = steering_module.EvidenceFirstGuard()
+    guard2.before_tool_call(_FakeToolEvent("get_service_knowledge", query="x"))
+    after = guard2.before_tool_call(
+        _FakeToolEvent(
+            "propose_next_action", decision_state="SUPPORTED_WITHIN_POLICY"
+        )
+    )
+
+    if isinstance(after, Guide):
+        raise RuntimeError(
+            "AGENT26 FAIL: support refused after a real retrieval"
+        )
+
+    print("AGENT26 STEERING REQUIRES RETRIEVAL BEFORE SUPPORT: PASS")
+
+
 def agent19_strands_registers_only_intended_tools():
     """Prove the tool surface at SDK registration, not just on our object.
 
@@ -1084,6 +1230,10 @@ def phase1():
     agent16_agent_fact_is_proposed_and_attributed()
     agent18_tool_object_exposes_exactly_four_tools()
     agent19_strands_registers_only_intended_tools()
+    agent23_hook_scopes_by_either_service_name()
+    agent24_hook_caps_repeated_tool_calls()
+    agent25_steering_refuses_machine_words_to_a_client()
+    agent26_steering_requires_retrieval_before_support()
     agent20_fixture_digests_match_their_passages()
     agent21_simulated_fixture_cannot_reach_the_application()
     agent22_identity_gate_cannot_be_bypassed()
