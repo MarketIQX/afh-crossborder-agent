@@ -133,9 +133,7 @@ def identity(session):
 
 
 def main(argv):
-    import boto3
-
-    session = boto3.Session()
+    session = bedrock.build_session()
     model = bedrock.BedrockStrandsModel(boto_session=session)
 
     record = {

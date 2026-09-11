@@ -40,9 +40,9 @@ def build_model(argv):
     if "--stub" in argv:
         return model_module.DeterministicStubModel()
 
-    import boto3
-
-    return bedrock.BedrockStrandsModel(boto_session=boto3.Session())
+    return bedrock.BedrockStrandsModel(
+        boto_session=bedrock.build_session()
+    )
 
 
 def main(argv):

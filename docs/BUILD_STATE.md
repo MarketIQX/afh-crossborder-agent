@@ -5,9 +5,8 @@ material only. A document cannot turn an unexecuted feature into a pass.
 
 ## CURRENT COMMIT
 
-`7cd9560` Add deterministic backend, ingestion, reviewer view and
-Bedrock adapter, on branch `checkpoint/deterministic-backend`. Working
-tree clean. 50 files, 10583 insertions.
+`4644768` Require standing for drafting and for revocation, on `main`,
+pushed to the public repository at github.com/MarketIQX/afh-crossborder-agent.
 
 Committed on explicit authorisation. Made on a branch rather than on
 `main`, so the default branch is unchanged until someone decides to
@@ -47,16 +46,16 @@ been invoked.
 
 ## EVIDENCE SNAPSHOT
 
-`docs/evidence/evidence-20260911T033920Z.json` plus its `.log` and
+`docs/evidence/evidence-20260911T080430Z.json` plus its `.log` and
 `-sources.json`. Produced by `python scripts/record_evidence.py`, which
 runs the full clean-slate verification and records the git state, the
 SHA-256 of all 59 source files, the dependency-lock digest, all
 seven migrations and their digests, and the complete output.
 
     VERDICT: PASS
-    INDIVIDUAL CHECKS: 74 passed, 0 failed
+    INDIVIDUAL CHECKS: 95 passed, 0 failed
 
-The eleven runner steps are not eleven tests. 74 is the count of
+The runner steps are not tests. 95 is the count of
 individual check identifiers, extracted from the output. They are
 assertions of our own design against a deterministic stub, so they
 say nothing about how a real model behaves.
@@ -204,6 +203,34 @@ permission to erase arbitrary state. The normal route remains
 `scripts/verify_clean_slate.py`, which builds and destroys its own
 instance. The primary stays unmarked.
 
+## M2: APPROVAL AND DISPATCH
+
+Built and verified, not yet exercised by a human through an interface.
+
+Approving and sending are separate database powers:
+
+    runtime   approve=false  dispatch=true   draft=true
+    reviewer  approve=true   dispatch=false  draft=false
+
+Neither identity alone can put a message in front of a client. An
+approval records the digest of the content the reviewer was shown, and
+dispatch recomputes it and refuses on any difference, so an approval
+cannot be carried onto different text. Dispatch commits the attempt
+before calling the provider, so a crash mid-send leaves evidence.
+
+`SEND_UNKNOWN` is a first-class outcome. A timeout after the request
+left gives no way to know whether the message went, so it blocks a
+retry, while a definite failure permits exactly one.
+
+APPROVE01-APPROVE20 cover the refusal matrix, and every refusal check
+also asserts the provider was never called, because a refusal that still
+sent something is not a refusal.
+
+Two authorisation gaps were found in self-review after the first M2
+commit and closed in `4644768`: a draft could name any recipient with
+nothing tying the address to the case, and revocation took no reviewer
+so any reviewer-role connection could withdraw any approval.
+
 ## APPROACHES TRIED AND ABANDONED
 
 Recorded so a later session does not re-attempt them. Each was live in
@@ -251,9 +278,16 @@ the tree at some point and was removed for the stated reason.
   live mailbox.
 - **A restricted read-only database identity** for the reviewer view.
 - **Hosted connectivity and authentication probe.** No evidence.
-- **M2** approval and dispatch, **M3** teaching and reuse. Not started.
-  The source manifest is groundwork for the Second Brain, not the
-  learning loop.
+- **M2 dispatch has never sent a real message.** The approval and dispatch
+  core is built and tested against a simulated provider, but the Gmail
+  provider has never run, and no reviewer interface exists, so no human
+  has actually approved anything through a screen.
+- **Authorisation without authentication.** Reviewer identity is a
+  parameter the caller supplies. Grants and role separation are real and
+  tested; there is no login verifying that the person clicking approve
+  is that reviewer.
+- **M3** teaching and reuse. Not started. The source manifest is
+  groundwork for the Second Brain, not the learning loop.
 - **Semantic routing.** Topic routing is still keyword-based. An
   enquiry that names no declared keyword routes to nothing and is
   declined as needing triage. Safe, but it declines real work. The

@@ -248,6 +248,32 @@ def build_tool_functions(bound):
     ]
 
 
+def build_session(region=None):
+    """A session built from configuration rather than inheritance.
+
+    Honours AWS_PROFILE from the environment or from .env, so the
+    process does not need to have been launched from the window that
+    set the credentials. Falls back to the default provider chain.
+    """
+    import boto3
+    from botocore.exceptions import ProfileNotFound
+
+    region = region or config.get("AWS_REGION", DEFAULT_REGION)
+    profile = (config.get("AWS_PROFILE") or "").strip()
+
+    if profile:
+        try:
+            return boto3.Session(profile_name=profile, region_name=region)
+        except ProfileNotFound:
+            raise IdentityRefused(
+                f"AWS_PROFILE names {profile!r} but no such profile is "
+                f"configured. Create it with `aws configure set ... "
+                f"--profile {profile}` or clear AWS_PROFILE."
+            ) from None
+
+    return boto3.Session(region_name=region)
+
+
 class BedrockStrandsModel:
     """Real model runs. Stamped BEDROCK_STRANDS in the run record."""
 
@@ -333,9 +359,7 @@ class BedrockStrandsModel:
         if self.boto_session is not None:
             return self.boto_session
 
-        import boto3
-
-        return boto3.Session()
+        return build_session(self.region)
 
     def session_with_region(self):
         """The same session, guaranteed to carry a region."""
