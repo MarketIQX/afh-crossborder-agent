@@ -162,7 +162,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-116 checks across eight suites. Every one names what it proves, and the
+120 checks across eight suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 

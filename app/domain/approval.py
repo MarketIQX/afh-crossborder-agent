@@ -161,6 +161,85 @@ def create_draft(conn, proposal_revision_id, recipient, subject, body_text,
     return {"draft_id": draft_id, "content_digest": digest}
 
 
+def edit_draft(conn, draft_id, reviewer_id, subject, body_text):
+    """Author a replacement for a draft. Reviewer role.
+
+    Returns the new draft id and digest, which the reviewer then
+    approves exactly as they would the agent's own words.
+    """
+    from app.agent import steering
+
+    subject = (subject or "").strip()
+    body_text = (body_text or "").strip()
+
+    if not subject or not body_text:
+        raise DraftRefused(
+            "an edited letter needs both a subject and a body"
+        )
+
+    problems = steering.inspect_copy(f"{subject}\n{body_text}")
+
+    if problems:
+        raise DraftRefused(
+            "this wording would not be allowed from the agent, so it is "
+            "not allowed from a person either: " + "; ".join(problems)
+        )
+
+    new_id = str(uuid.uuid4())
+
+    with conn.transaction():
+        with conn.cursor() as cur:
+            original = _fetch_draft(cur, draft_id)
+
+            if original is None:
+                raise DraftRefused(f"no draft {draft_id}")
+
+            case_id = original["case_id"]
+
+            if not _active_reviewer(cur, reviewer_id):
+                raise DraftRefused(
+                    "this reviewer is not active and may not author"
+                )
+
+            if not _has_active_grant(cur, reviewer_id, case_id):
+                raise DraftRefused(
+                    "this reviewer holds no active grant on the case, so "
+                    "they may not write on it"
+                )
+
+            attachments = list(original["attachments"] or [])
+            digest = content_digest(
+                original["recipient"], subject, body_text, attachments
+            )
+
+            cur.execute(
+                """
+                INSERT INTO app.draft_messages (
+                    id, proposal_revision_id, recipient, subject,
+                    body_text, attachments, content_digest,
+                    authored_by, authored_by_reviewer_id,
+                    supersedes_draft_id
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, 'REVIEWER', %s, %s
+                )
+                """,
+                (
+                    new_id,
+                    original["proposal_revision_id"],
+                    original["recipient"],
+                    subject,
+                    body_text,
+                    Jsonb(attachments),
+                    digest,
+                    reviewer_id,
+                    draft_id,
+                ),
+            )
+
+    return {"draft_id": new_id, "content_digest": digest}
+
+
+
 def _case_correspondents(cur, proposal_revision_id):
     """Addresses that have actually written in on this case."""
     cur.execute(

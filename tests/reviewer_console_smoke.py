@@ -382,12 +382,22 @@ def view06_drafting_produces_the_letter(port):
     STATE["draft_id"] = hidden(body, "draft_id")
     STATE["digest"] = hidden(body, "seen_digest")
 
+    # Assert the control, not its wording. A button's label is copy and
+    # will change; what must hold is that a control exists which
+    # approves this draft, and one which returns it.
+    approves = 'name="decision" value="APPROVED"' in body
+    returns = 'name="decision" value="REJECTED"' in body
+    edits = f"/case/{STATE['letter_case']}/edit" in body
+
     require(
-        "VIEW06 DRAFTING PRODUCES A LETTER ON THE PAGE",
+        "VIEW06 DRAFTING PRODUCES A LETTER AND THREE ACTIONS",
         STATE["draft_id"] is not None
         and CLIENT in body
-        and "Approve this letter" in body,
-        flash_of(url)[:40],
+        and approves
+        and returns
+        and edits,
+        f"draft={STATE['draft_id'] is not None} approve={approves} "
+        f"return={returns} edit={edits} {flash_of(url)[:40]}",
     )
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import psycopg
 
-from psycopg.errors import InsufficientPrivilege
+from psycopg.errors import InsufficientPrivilege, RaiseException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -353,27 +353,35 @@ def approve02_reviewer_cannot_dispatch():
     )
 
 
-def approve03_reviewer_cannot_rewrite_the_draft():
+def approve03_reviewer_cannot_author_as_the_agent():
+    """A reviewer may write, but only as themselves.
+
+    Attribution a writer can choose is not attribution. If a person can
+    label their own words as the machine's, "Anika drafted this" means
+    nothing and the trail from the agent's words to the words sent is
+    fiction.
+    """
     def action():
         with reviewer_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO app.draft_messages (id, "
                     "proposal_revision_id, recipient, subject, body_text, "
-                    "content_digest) VALUES (%s, %s, %s, %s, %s, %s)",
+                    "content_digest, authored_by) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 'AGENT')",
                     (
                         str(uuid.uuid4()),
                         SECOND_REVISION_ID,
                         "elsewhere@example.test",
-                        "Rewritten",
-                        "Rewritten body",
+                        "Passed off as the agent's",
+                        "Written by a person, labelled as the machine.",
                         "x",
                     ),
                 )
 
     expect_refusal(
-        "APPROVE03 THE REVIEWER ROLE CANNOT WRITE A DRAFT",
-        InsufficientPrivilege,
+        "APPROVE03 A REVIEWER CANNOT AUTHOR AS THE AGENT",
+        RaiseException,
         action,
     )
 
@@ -816,7 +824,7 @@ def approve20_revoking_without_a_grant_is_refused():
 CHECKS = (
     approve01_runtime_cannot_approve,
     approve02_reviewer_cannot_dispatch,
-    approve03_reviewer_cannot_rewrite_the_draft,
+    approve03_reviewer_cannot_author_as_the_agent,
     approve04_reviewer_without_a_grant_is_refused,
     approve05_inactive_reviewer_is_refused,
     approve06_stale_render_is_refused,

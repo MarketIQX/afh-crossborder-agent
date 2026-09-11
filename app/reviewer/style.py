@@ -407,6 +407,207 @@ a { color: var(--accent); }
   .bar { position: sticky; bottom: 0; }
   .toolbar { flex-wrap: wrap; height: auto; padding: 8px 14px; gap: 10px; }
 }
+
+/* ---- navigation: the app has places now ----------------------- */
+
+.nav {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+  background: var(--paper);
+  border-bottom: 1px solid var(--hair);
+  padding: 0 18px;
+  overflow-x: auto;
+}
+
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  height: 40px;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.nav a:hover { color: var(--ink); }
+
+.nav a.on {
+  color: var(--ink);
+  font-weight: 500;
+  border-bottom-color: var(--accent);
+}
+
+.nav .n {
+  font-family: SYSTEM_MONO_TOKEN;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--muted);
+}
+
+.nav a.on .n { background: var(--accent); color: var(--accent-ink); }
+.nav .n.urgent { background: var(--wait); color: #fff; }
+
+/* ---- the queue ------------------------------------------------- */
+
+.queue { overflow-y: auto; padding: 18px 22px 60px; }
+.queue-inner { max-width: 940px; }
+
+.lane { margin-bottom: 30px; }
+
+.lane > header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+  padding: 0;
+  height: auto;
+  background: none;
+  border: none;
+}
+
+.lane h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.lane .count {
+  font-family: SYSTEM_MONO_TOKEN;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lane .note {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.lane.act h2 { color: var(--accent); }
+
+.matters {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.matter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 16px;
+  align-items: center;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--hair);
+  color: inherit;
+  text-decoration: none;
+}
+
+.matter:last-child { border-bottom: none; }
+.matter:hover { background: var(--sunk); }
+
+.matter .who {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.matter .subject {
+  font-size: 15px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matter .why {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.matter .meta {
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.matter .ref {
+  font-family: SYSTEM_MONO_TOKEN;
+  font-size: 12px;
+  display: block;
+}
+
+.by {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  color: var(--muted);
+}
+
+.by.person { border-color: var(--ok); color: var(--ok); }
+
+/* ---- the three actions on a draft ------------------------------ */
+
+.acts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.acts form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+details.editor { width: 100%; margin-top: 12px; }
+
+details.editor > summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  color: var(--accent);
+  list-style: none;
+}
+
+details.editor > summary::-webkit-details-marker { display: none; }
+details.editor > summary::before { content: "\\u203a  "; }
+details.editor[open] > summary::before { content: "\\u2304  "; }
+
+details.editor .pad {
+  padding: 14px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+textarea, .editor input[type="text"] {
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 5px;
+  padding: 10px 12px;
+  width: 100%;
+  resize: vertical;
+}
+
+textarea { min-height: 190px; }
+
+.editor .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.empty-queue {
+  padding: 50px 22px;
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+.empty-queue h1 { font-size: 20px; margin: 0 0 8px; color: var(--ink); }
 """
 
 CSS = CSS.replace("SYSTEM_SANS_TOKEN", SYSTEM_SANS).replace(

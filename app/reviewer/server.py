@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from app.dispatch import dispatcher, providers
 from app.domain import approval as approval_domain
 from app.domain import drafting
-from app.reviewer import queries, style, workqueue
+from app.reviewer import inbox, queries, style, workqueue
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
@@ -57,7 +57,7 @@ def esc(value):
     return html.escape("" if value is None else str(value))
 
 
-def page(title, body, reviewers, reviewer_id, flash=None, crumb=""):
+def page(title, body, reviewers, reviewer_id, flash=None, crumb="", nav=None, counts=0):
     options = "".join(
         f'<option value="{esc(rid)}"'
         f'{" selected" if rid == reviewer_id else ""}>{esc(name)}</option>'
@@ -89,6 +89,7 @@ def page(title, body, reviewers, reviewer_id, flash=None, crumb=""):
     </select>
   </form>
 </header>
+{nav_html(nav, counts) if nav else ''}
 {flash_html}
 {body}
 </div>
@@ -247,15 +248,37 @@ been written yet.</div>""",
         verdict
         + '<p class="pane-title">The letter the agent proposes</p>'
         + letter,
-        f"""<form method="post" action="/case/{esc(case_id)}/decide">
-  <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
-  <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
-  <input type="hidden" name="seen_digest" value="{esc(draft["content_digest"])}">
-  <button type="submit" name="decision" value="APPROVED">Approve this letter</button>
-  <button type="submit" name="decision" value="REJECTED" class="quiet">Return it</button>
-  <input type="text" name="note" placeholder="Note, optional">
-  <span class="hint">Approves these exact words.</span>
-</form>""",
+        f"""<div class="acts">
+  <form method="post" action="/case/{esc(case_id)}/decide">
+    <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+    <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
+    <input type="hidden" name="seen_digest"
+           value="{esc(draft["content_digest"])}">
+    <button type="submit" name="decision" value="APPROVED">Send as it stands</button>
+    <button type="submit" name="decision" value="REJECTED" class="quiet">Return it</button>
+    <input type="text" name="note" placeholder="What was wrong with it?">
+  </form>
+  <span class="hint">Approving binds these exact words.</span>
+
+  <details class="editor">
+    <summary>Edit and send</summary>
+    <form method="post" action="/case/{esc(case_id)}/edit">
+      <div class="pad">
+        <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+        <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
+        <input type="text" name="subject" id="edit-subject"
+               value="{esc(draft["subject"])}">
+        <textarea name="body_text" id="edit-body">{esc(draft["body_text"])}</textarea>
+        <div class="row">
+          <button type="submit">Save and approve my version</button>
+          <span class="hint">Recorded as written by you, replacing
+          Anika's. Sending is still carried out by the runtime, which
+          cannot approve.</span>
+        </div>
+      </div>
+    </form>
+  </details>
+</div>""",
     )
 
 
@@ -305,7 +328,8 @@ def _context(messages, revision, run, trace, draft, items, case_id):
     others = "".join(
         f'<a href="/case/{esc(i["case_id"])}">'
         f'<span class="ref">{esc(i["reference"])}</span>'
-        f'<span class="need">{esc(NEEDS.get(i["awaiting"], ""))}</span></a>'
+        f'<span class="need">'
+        f'{esc(dict(inbox.LANES).get(i["lane"], ""))}</span></a>'
         for i in items
         if i["case_id"] != case_id
     )
@@ -316,6 +340,136 @@ def _context(messages, revision, run, trace, draft, items, case_id):
         )
 
     return "".join(blocks)
+
+
+NAV = (
+    ("/", "Inbox"),
+    ("/knowledge", "Knowledge"),
+    ("/learning", "Learning"),
+    ("/train", "Train Anika"),
+)
+
+
+def nav_html(current, counts=None):
+    """The places this application has, with what needs a person."""
+    out = []
+
+    for href, label in NAV:
+        on = " on" if href == current else ""
+        badge = ""
+
+        if href == "/" and counts:
+            urgent = " urgent" if counts else ""
+            badge = f'<span class="n{urgent}">{counts}</span>'
+
+        out.append(
+            f'<a class="nav-item{on}" href="{href}">{esc(label)}{badge}</a>'
+        )
+
+    return f'<nav class="nav">{"".join(out)}</nav>'
+
+
+def _received(value):
+    if value is None:
+        return ""
+
+    return value.strftime("%d %b %H:%M")
+
+
+def _matter_row(item, reviewer_id):
+    """One line in the queue. Sender and subject, because it is email."""
+    why = ""
+
+    if item["lane"] == inbox.NEEDS_TRIAGE and item["triage_detail"]:
+        why = item["triage_detail"]
+    elif item["lane"] == inbox.NEEDS_PROFESSIONAL and item["summary"]:
+        why = item["summary"]
+    elif item["lane"] == inbox.CLOSED and item["note"]:
+        why = f"Returned: {item['note']}"
+    elif item["summary"]:
+        why = item["summary"]
+
+    by = ""
+
+    if item["authored_by"] == "REVIEWER":
+        by = '<span class="by person">you wrote this</span>'
+    elif item["authored_by"] == "AGENT":
+        by = '<span class="by">Anika drafted</span>'
+
+    return f"""<a class="matter"
+   href="/case/{esc(item['case_id'])}?reviewer={esc(reviewer_id)}">
+  <div>
+    <div class="who">{esc(item['sender'] or 'no sender recorded')}</div>
+    <div class="subject">{esc(item['subject'])}</div>
+    <div class="why">{esc(why[:150])}</div>
+  </div>
+  <div class="meta">
+    <span class="ref">{esc(item['reference'])}</span>
+    {_received(item['received_at'])}
+    <div>{by}</div>
+  </div>
+</a>"""
+
+
+ACTIONABLE = (
+    inbox.NEEDS_DECISION,
+    inbox.READY_TO_SEND,
+    inbox.NEEDS_TRIAGE,
+    inbox.NEEDS_PROFESSIONAL,
+)
+
+
+def render_inbox(people, reviewer_id, items, flash=None):
+    """The working day."""
+    if not items:
+        body = """<div class="empty-queue">
+  <h1>Nothing has arrived.</h1>
+  When someone emails the practice, Anika reads it, decides what it
+  needs, and it appears here. Nothing is sent without you.
+</div>"""
+
+        return page(
+            "Inbox", body, people, reviewer_id, flash, nav="/", counts=0
+        )
+
+    lanes = []
+
+    for key, label, rows in inbox.grouped(items):
+        act = " act" if key in ACTIONABLE else ""
+        lanes.append(
+            f"""<section class="lane{act}">
+  <header>
+    <h2>{esc(label)}</h2>
+    <span class="count">{len(rows)}</span>
+  </header>
+  <p class="note">{esc(inbox.LANE_NOTE[key])}</p>
+  <div class="matters">
+    {"".join(_matter_row(row, reviewer_id) for row in rows)}
+  </div>
+</section>"""
+        )
+
+    body = f'<div class="queue"><div class="queue-inner">{"".join(lanes)}</div></div>'
+
+    return page(
+        "Inbox",
+        body,
+        people,
+        reviewer_id,
+        flash,
+        nav="/",
+        counts=inbox.needs_you(items),
+    )
+
+
+def render_soon(title, explain, people, reviewer_id, nav):
+    """A place that exists in the navigation but not yet in the product."""
+    body = f"""<div class="empty-queue">
+  <h1>{esc(title)}</h1>
+  {esc(explain)}
+</div>"""
+
+    return page(title, body, people, reviewer_id, nav=nav)
 
 
 def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
@@ -425,15 +579,43 @@ class Handler(BaseHTTPRequestHandler):
                 reviewer_id = self._pick_reviewer(
                     (params.get("reviewer") or [""])[0], people
                 )
-                items = workqueue.queue(conn)
+                items = inbox.queue(conn)
 
                 if path == "/":
-                    if not items:
-                        self._send(200, render_empty(people, reviewer_id))
-                        return
+                    self._send(
+                        200,
+                        render_inbox(people, reviewer_id, items, flash),
+                    )
+                    return
 
-                    self._redirect(
-                        f"/case/{items[0]['case_id']}?reviewer={reviewer_id}"
+                if path in ("/knowledge", "/learning", "/train"):
+                    titles = {
+                        "/knowledge": (
+                            "Knowledge",
+                            "What Anika knows, where each piece came from, "
+                            "and how far up the verification ladder it "
+                            "sits. Not built yet.",
+                        ),
+                        "/learning": (
+                            "Learning",
+                            "What Anika has been taught, by whom, and "
+                            "where a lesson has since been reused. Not "
+                            "built yet.",
+                        ),
+                        "/train": (
+                            "Train Anika",
+                            "Upload the documents a junior would be given, "
+                            "review what Anika proposes to learn from "
+                            "them, and sign off what is correct. Not "
+                            "built yet.",
+                        ),
+                    }
+                    title, explain = titles[path]
+                    self._send(
+                        200,
+                        render_soon(
+                            title, explain, people, reviewer_id, path
+                        ),
                     )
                     return
 
@@ -458,7 +640,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, rendered)
                     return
         except Exception as exc:  # noqa: BLE001
-            self._send(500, f"<p>Query failed: {esc(exc.__class__.__name__)}</p>")
+            self._send(
+                500,
+                f"<p>Query failed: {esc(exc.__class__.__name__)}: "
+                f"{esc(exc)}</p>",
+            )
             return
 
         self._send(404, "<p>No such page.</p>")
@@ -477,6 +663,7 @@ class Handler(BaseHTTPRequestHandler):
         handler = {
             "draft": self._do_draft,
             "decide": self._do_decide,
+            "edit": self._do_edit,
             "send": self._do_send,
         }.get(action)
 
@@ -518,6 +705,40 @@ class Handler(BaseHTTPRequestHandler):
             return ("Approved. Sending is a separate step.", "ok")
 
         return ("Returned. Nothing will be sent.", "ok")
+
+    def _do_edit(self, form):
+        """Rewrite the letter as the reviewer, then approve those words.
+
+        Two writes, one click. The reviewer authors and approves; the
+        runtime still performs the send and still cannot approve.
+        """
+        try:
+            with workqueue.reviewer_connection() as conn:
+                written = approval_domain.edit_draft(
+                    conn,
+                    form["draft_id"],
+                    form["reviewer"],
+                    form.get("subject", ""),
+                    form.get("body_text", ""),
+                )
+                approval_domain.record_decision(
+                    conn,
+                    written["draft_id"],
+                    form["reviewer"],
+                    "APPROVED",
+                    written["content_digest"],
+                    note="edited by the reviewer before approval",
+                )
+        except approval_domain.DraftRefused as exc:
+            return (str(exc), "bad")
+        except approval_domain.ApprovalRefused as exc:
+            return (str(exc), "bad")
+
+        return (
+            "Your version is saved and approved. Sending is a separate "
+            "step, carried out by the runtime.",
+            "ok",
+        )
 
     def _do_send(self, form):
         provider = providers.SimulatedProvider()
