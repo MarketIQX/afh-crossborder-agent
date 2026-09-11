@@ -31,16 +31,21 @@ Observable facts, as of 2026-09-11:
 - The hackathon requires a public repository carrying an MIT or Apache
   licence, so publishing under MIT was a condition of entering at all.
 
-Still to be confirmed by the owner, and not assumed here:
+Resolved on 2026-09-11 by the owner:
 
-- Whether the **entrant of record** on Devpost is the individual or
-  MarketIQX. The submission asks for an AWS Builder ID, which is held
-  individually, while the repository is owned by the organisation.
-- That the Devpost account and the AWS Builder ID refer to the same
-  person, since a mismatch between them is a submission problem rather
-  than a technical one.
+- The **entrant of record is an individual**, not a company.
+- That same individual runs MarketIQX and controls the MarketIQX GitHub
+  organisation, the AWS account used for this build, and the AWS Builder
+  ID given in the submission. They are separate accounts under one
+  person, not separate parties.
+- The repository was created new for this hackathon, in line with the
+  fresh-code rule, rather than reusing existing company repositories.
 
-Nothing in this repository depends on the answer. It is recorded here
-because the licence was applied before the question was closed, and a
-provenance file that claims otherwise is worse than one that admits the
-sequence.
+No third party holds rights in this work, and no employer, client or
+collaborator contributed to it. The MIT licence therefore stands
+correctly.
+
+The licence was applied before this question was formally closed. That
+sequence is recorded rather than tidied away, because a provenance file
+that presents a clean order of events it did not follow is worth less
+than one that admits the real order.
