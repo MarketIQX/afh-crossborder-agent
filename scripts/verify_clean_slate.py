@@ -154,6 +154,9 @@ def build_and_verify():
     env["POSTGRES_DB"] = DB_NAME
     env["POSTGRES_ADMIN_PASSWORD"] = config.require("POSTGRES_ADMIN_PASSWORD")
     env["POSTGRES_APP_PASSWORD"] = config.require("POSTGRES_APP_PASSWORD")
+    env["POSTGRES_REVIEWER_PASSWORD"] = config.require(
+        "POSTGRES_REVIEWER_PASSWORD"
+    )
     env["AGENTS_TEST_TARGET"] = DB_NAME
 
     step("bootstrap", ["-m", "app.db.bootstrap"], env)
