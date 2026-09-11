@@ -608,6 +608,131 @@ textarea { min-height: 190px; }
 }
 
 .empty-queue h1 { font-size: 20px; margin: 0 0 8px; color: var(--ink); }
+
+/* ---- training: designed to slow the reader down ---------------- */
+
+.upload {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upload .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.upload input[type="file"] { font-size: 14px; max-width: 100%; }
+
+.candidate {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.cand-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 20px 0;
+}
+
+.candidate .pane-title { padding: 0 20px; margin: 16px 0 6px; }
+
+/* The proposal is the machine's words. Sized so it cannot be skimmed
+   past, but not so large it looks authoritative. */
+.proposal {
+  padding: 0 20px;
+  margin: 0 0 14px;
+  font-size: 16.5px;
+  line-height: 1.55;
+  max-width: 68ch;
+}
+
+.candidate .held { margin: 0 20px 4px; }
+
+/* The source is shown unfolded, always. Anything behind a disclosure is
+   something a hurried reviewer will accept without reading. */
+.passage {
+  margin: 0 20px 12px;
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--sunk);
+  overflow: hidden;
+}
+
+.passage-head {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--hair);
+  font-family: SYSTEM_MONO_TOKEN;
+}
+
+.passage-text {
+  padding: 14px;
+  white-space: pre-wrap;
+  font-size: 15px;
+  line-height: 1.62;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+/* Reject is given the same weight as accept. An interface where
+   approval is one click and rejection is a chore teaches approval. */
+.candidate .bar { margin-top: 8px; }
+.candidate .bar input[type="text"] { min-width: 240px; flex: 1; }
+
+/* ---- coverage ---------------------------------------------------- */
+
+.covers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.cover {
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--hair);
+  border-radius: 4px;
+  background: var(--paper);
+  padding: 11px 14px;
+}
+
+.cover b { display: block; font-size: 14.5px; font-weight: 600; }
+.cover span { font-size: 13px; color: var(--muted); }
+.cover.ok { border-left-color: var(--ok); }
+.cover.ok span { color: var(--ok); }
+.cover.bad { border-left-color: var(--wait); }
+.cover.bad span { color: var(--wait); }
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 1px;
+  background: var(--hair);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.metric { background: var(--paper); padding: 13px 15px; }
+
+.metric b {
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric span { font-size: 12px; color: var(--muted); }
 """
 
 CSS = CSS.replace("SYSTEM_SANS_TOKEN", SYSTEM_SANS).replace(

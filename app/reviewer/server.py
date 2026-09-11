@@ -30,7 +30,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from app.dispatch import dispatcher, providers
 from app.domain import approval as approval_domain
 from app.domain import drafting
-from app.reviewer import inbox, queries, style, workqueue
+from app.reviewer import (
+    inbox,
+    queries,
+    style,
+    train_views,
+    upload as upload_module,
+    workqueue,
+)
+from app.training import pipeline, store as training_store
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
@@ -53,8 +61,7 @@ NEEDS = {
 }
 
 
-def esc(value):
-    return html.escape("" if value is None else str(value))
+from app.reviewer.style_helpers import esc  # noqa: F401
 
 
 def page(title, body, reviewers, reviewer_id, flash=None, crumb="", nav=None, counts=0):
@@ -472,6 +479,56 @@ def render_soon(title, explain, people, reviewer_id, nav):
     return page(title, body, people, reviewer_id, nav=nav)
 
 
+SERVICE_KEY = "nri_india_tax_filing"
+
+
+def active_service(conn):
+    """The one corridor this build teaches. A second is a row, not code."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id::text, name FROM app.services "
+            "WHERE service_key = %s AND is_active",
+            (SERVICE_KEY,),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        raise RuntimeError(f"service {SERVICE_KEY} is not active")
+
+    return row[0], row[1]
+
+
+def render_train(conn, people, reviewer_id, flash=None):
+    service_id, service_label = active_service(conn)
+
+    with workqueue.reviewer_connection() as rconn:
+        docs = training_store.documents_for(rconn, service_id)
+        cands = training_store.candidates_for(rconn, state="PENDING")
+
+    body = train_views.train_page(
+        service_label, reviewer_id, docs, cands
+    )
+
+    return page(
+        "Train Anika", body, people, reviewer_id, flash, nav="/train"
+    )
+
+
+def render_learning(conn, people, reviewer_id, flash=None):
+    service_id, _label = active_service(conn)
+
+    with workqueue.reviewer_connection() as rconn:
+        summary = training_store.learning_summary(rconn, service_id)
+        taught = training_store.taught_units(rconn, service_id)
+        rejected = training_store.candidates_for(rconn, state="REJECTED")
+
+    body = train_views.learning_page(summary, taught, rejected)
+
+    return page(
+        "Learning", body, people, reviewer_id, flash, nav="/learning"
+    )
+
+
 def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     header = queries.case_header(conn, case_id)
 
@@ -588,7 +645,21 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     return
 
-                if path in ("/knowledge", "/learning", "/train"):
+                if path == "/train":
+                    self._send(
+                        200,
+                        render_train(conn, people, reviewer_id, flash),
+                    )
+                    return
+
+                if path == "/learning":
+                    self._send(
+                        200,
+                        render_learning(conn, people, reviewer_id, flash),
+                    )
+                    return
+
+                if path in ("/knowledge",):
                     titles = {
                         "/knowledge": (
                             "Knowledge",
@@ -651,8 +722,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         path = urllib.parse.urlparse(self.path).path.rstrip("/")
-        form = self._form()
+
+        content_type = (self.headers.get("Content-Type") or "").lower()
+        self._upload = None
+
+        if "multipart/form-data" in content_type:
+            try:
+                form, self._upload = upload_module.read_multipart(
+                    self.headers, self.rfile
+                )
+            except upload_module.UploadRefused as exc:
+                self._after_action("/train", "", str(exc), "bad")
+                return
+        else:
+            form = self._form()
+
         reviewer_id = form.get("reviewer", "")
+
+        if path.startswith("/train/"):
+            message, kind = self._do_training(path, form)
+            self._after_action("/train", reviewer_id, message, kind)
+            return
 
         if not path.startswith("/case/"):
             self._send(404, "<p>No such page.</p>")
@@ -705,6 +795,148 @@ class Handler(BaseHTTPRequestHandler):
             return ("Approved. Sending is a separate step.", "ok")
 
         return ("Returned. Nothing will be sent.", "ok")
+
+    def _after_action(self, where, reviewer_id, message, kind):
+        """Redirect back with the outcome in the query string."""
+        target = (
+            f"{where}?reviewer={urllib.parse.quote(reviewer_id)}"
+            f"&msg={urllib.parse.quote(message[:400])}"
+            f"&kind={urllib.parse.quote(kind)}"
+        )
+        self._redirect(target)
+
+    def _do_training(self, path, form):
+        action = path[len("/train/") :]
+
+        if action == "upload":
+            return self._do_upload(form)
+
+        if action == "accept":
+            return self._do_accept(form)
+
+        if action == "reject":
+            return self._do_reject(form)
+
+        return ("Not a training action.", "bad")
+
+    def _do_upload(self, form):
+        if not self._upload:
+            return ("Choose a file first.", "bad")
+
+        reviewer_id = form.get("reviewer", "")
+
+        if not reviewer_id:
+            return ("No reviewer selected, so nothing can be signed.", "bad")
+
+        from app.training import documents as documents_module
+
+        try:
+            with workqueue.app_connection() as conn:
+                service_id, _label = active_service(conn)
+        except Exception as exc:  # noqa: BLE001
+            return (f"No active service: {exc}", "bad")
+
+        try:
+            factory = pipeline.build_agent_factory()
+        except Exception as exc:  # noqa: BLE001
+            return (
+                f"Anika cannot read documents right now: "
+                f"{exc.__class__.__name__}. The file was not stored, so "
+                f"nothing is half done.",
+                "bad",
+            )
+
+        try:
+            with workqueue.reviewer_connection() as rconn, \
+                    workqueue.app_connection() as tconn:
+                report = pipeline.ingest(
+                    rconn,
+                    tconn,
+                    service_id,
+                    self._upload["filename"],
+                    self._upload["content"],
+                    reviewer_id,
+                    factory,
+                )
+        except documents_module.DocumentRefused as exc:
+            return (str(exc), "bad")
+        except training_store.TrainingRefused as exc:
+            return (str(exc), "bad")
+        except Exception as exc:  # noqa: BLE001
+            return (
+                f"Reading that document failed: {exc.__class__.__name__}.",
+                "bad",
+            )
+
+        if report.get("failure"):
+            return (report["failure"], "bad")
+
+        if not report["proposed"]:
+            return (
+                f"Read {report['chunks']} passages from "
+                f"{report['filename']} and proposed nothing. That is a "
+                f"real answer: the passages did not establish anything "
+                f"on their own.",
+                "ok",
+            )
+
+        warned = (
+            f" {report['not_supported']} of them failed the check and are "
+            f"marked."
+            if report["not_supported"]
+            else ""
+        )
+
+        return (
+            f"Read {report['chunks']} passages from "
+            f"{report['filename']}. Anika proposes {report['proposed']} "
+            f"thing(s) to learn, all awaiting your judgment.{warned}",
+            "ok",
+        )
+
+    def _do_accept(self, form):
+        try:
+            with workqueue.app_connection() as conn:
+                service_id, _label = active_service(conn)
+
+            with workqueue.reviewer_connection() as rconn:
+                result = training_store.accept_and_publish(
+                    rconn,
+                    form.get("candidate_id", ""),
+                    form.get("reviewer", ""),
+                    service_id,
+                    form.get("source_locator", ""),
+                )
+        except training_store.TrainingRefused as exc:
+            return (str(exc), "bad")
+        except Exception as exc:  # noqa: BLE001
+            return (f"Could not publish: {exc.__class__.__name__}", "bad")
+
+        return (
+            f"Taught. Anika may now use this, cited to you, from release "
+            f"{result['release_id'][:8]}.",
+            "ok",
+        )
+
+    def _do_reject(self, form):
+        try:
+            with workqueue.reviewer_connection() as rconn:
+                training_store.reject(
+                    rconn,
+                    form.get("candidate_id", ""),
+                    form.get("reviewer", ""),
+                    form.get("note", ""),
+                )
+        except training_store.TrainingRefused as exc:
+            return (str(exc), "bad")
+        except Exception as exc:  # noqa: BLE001
+            return (f"Could not reject: {exc.__class__.__name__}", "bad")
+
+        return (
+            "Rejected, with your reason kept. That reason is the most "
+            "useful thing this produces.",
+            "ok",
+        )
 
     def _do_edit(self, form):
         """Rewrite the letter as the reviewer, then approve those words.
