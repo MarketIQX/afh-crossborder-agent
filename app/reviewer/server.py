@@ -57,7 +57,7 @@ def esc(value):
     return html.escape("" if value is None else str(value))
 
 
-def page(title, body, reviewers, reviewer_id, flash=None):
+def page(title, body, reviewers, reviewer_id, flash=None, crumb=""):
     options = "".join(
         f'<option value="{esc(rid)}"'
         f'{" selected" if rid == reviewer_id else ""}>{esc(name)}</option>'
@@ -75,10 +75,13 @@ def page(title, body, reviewers, reviewer_id, flash=None):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>{style.FONT_LINK}
 <style>{style.CSS}</style></head><body>
-<header class="bar">
-  <a class="home" href="/">Cross-border compliance</a>
-  <span class="unauth">No sign-in yet &mdash; the reviewer is selected, not verified</span>
+<div class="app">
+<header class="toolbar">
+  <a class="brand" href="/">Cross-border compliance</a>
+  <span class="sep"></span>
+  {crumb}
   <span class="spacer"></span>
+  <span class="caution">No sign-in &mdash; reviewer selected, not verified</span>
   <form method="get" action="">
     <label for="reviewer">Acting as</label>
     <select id="reviewer" name="reviewer" onchange="this.form.submit()">
@@ -88,33 +91,18 @@ def page(title, body, reviewers, reviewer_id, flash=None):
 </header>
 {flash_html}
 {body}
+</div>
 </body></html>"""
 
 
 def render_empty(reviewers, reviewer_id):
-    body = """<main>
-  <p class="eyebrow">Nothing waiting</p>
-  <h1>No matter needs a decision.</h1>
-  <p class="sub">When the agent finishes reading an enquiry, it appears
-  here with the letter it proposes to send.</p>
-</main>"""
+    body = """<div class="panes"><div class="primary"><div class="empty">
+  <h1 style="font-size:20px;margin:0 0 6px">No matter needs a decision.</h1>
+  When the agent finishes reading an enquiry it appears here, with the
+  letter it proposes to send.
+</div></div><div class="context"></div></div>"""
 
     return page("Nothing waiting", body, reviewers, reviewer_id)
-
-
-def _others_html(items, current_id):
-    rows = "".join(
-        f'<a href="/case/{esc(i["case_id"])}">'
-        f'<span class="ref">{esc(i["reference"])}</span>'
-        f'<span class="need">{esc(NEEDS.get(i["awaiting"], ""))}</span></a>'
-        for i in items
-        if i["case_id"] != current_id
-    )
-
-    if not rows:
-        return ""
-
-    return f'<div class="others"><h2>Other matters</h2>{rows}</div>'
 
 
 def _provenance_html(revision, run, trace, draft):
@@ -161,34 +149,51 @@ def _letter_html(draft):
 </div>"""
 
 
-def _action_html(case_id, revision, draft, conn, reviewer_id):
+CHIP = {
+    "MISSING_FACTS": ("wait", "Needs client facts"),
+    "MISSING_KNOWLEDGE": ("bad", "Needs a professional"),
+    "SOURCE_CONFLICT": ("bad", "Sources conflict"),
+    "OUT_OF_SCOPE": ("wait", "Out of scope"),
+    "SUPPORTED_WITHIN_POLICY": ("ok", "Covered for review"),
+    "SYSTEM_FAILURE": ("bad", "Run failed"),
+}
+
+
+def _primary(case_id, revision, draft, conn, reviewer_id):
+    """The letter and the decision. Returns (scroller_html, bar_html)."""
     state = revision["decision_state"]
+    kind, label = CHIP.get(state, ("", state))
+
+    verdict = f"""<div class="verdict">
+  <h1>{esc(VERDICT.get(state, state))}</h1>
+</div>"""
 
     if draft is None:
         if state in drafting.INTERNAL_ONLY:
-            return f"""<section>
-  <h2>Nothing to send</h2>
-  <div class="held">{esc(drafting.INTERNAL_ONLY[state])}. This does not
-  go to the client; it needs a colleague.</div>
-</section>"""
+            return (
+                verdict
+                + f"""<div class="held">{esc(drafting.INTERNAL_ONLY[state])}.
+This does not go to the client; it needs a colleague.</div>""",
+                '<span class="hint">Nothing to send on this matter.</span>',
+            )
 
-        return f"""<section>
-  <h2>Next</h2>
-  <p class="note">The agent has decided. No letter has been written yet.</p>
-  <div class="decide">
-    <form method="post" action="/case/{esc(case_id)}/draft">
-      <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
-      <input type="hidden" name="revision_id" value="{esc(revision['revision_id'])}">
-      <button type="submit">Write the letter</button>
-    </form>
-  </div>
-</section>"""
+        return (
+            verdict
+            + """<div class="held">The agent has decided. No letter has
+been written yet.</div>""",
+            f"""<form method="post" action="/case/{esc(case_id)}/draft">
+  <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+  <input type="hidden" name="revision_id" value="{esc(revision['revision_id'])}">
+  <button type="submit">Write the letter</button>
+  <span class="hint">You will read it before anything is sent.</span>
+</form>""",
+        )
 
     letter = _letter_html(draft)
     dispatch = workqueue.dispatch_for_approval(conn, draft["approval_id"])
 
     if dispatch:
-        kind = {"SENT": "ok", "FAILED": "bad"}.get(dispatch["state"], "wait")
+        tone = {"SENT": "ok", "FAILED": "bad"}.get(dispatch["state"], "wait")
         detail = (
             f"Provider reference {dispatch['provider_message_id']}. "
             "The provider accepted it, which is not proof of delivery."
@@ -197,56 +202,120 @@ def _action_html(case_id, revision, draft, conn, reviewer_id):
         )
 
         if dispatch["state"] == "SEND_UNKNOWN":
-            detail += " Delivery is undetermined, so this will not be retried."
+            detail += (
+                " Delivery is undetermined, so this will not be retried."
+            )
 
-        return f"""<section>
-  <h2>Sent</h2>
-  {letter}
-  <div class="held {kind}" style="margin-top:16px">
-    <p class="state {kind}">{esc(dispatch["state"])}</p>{esc(detail)}
-  </div>
-</section>"""
+        return (
+            verdict
+            + '<p class="pane-title">The letter that was sent</p>'
+            + letter
+            + f"""<div class="held {tone}" style="margin-top:16px">
+  <p class="{tone}">{esc(dispatch["state"])}</p>{esc(detail)}</div>""",
+            f'<span class="hint">Sent. Nothing further to decide.</span>',
+        )
 
     if draft["decision"] == "REJECTED":
-        return f"""<section>
-  <h2>Returned</h2>
-  {letter}
-  <div class="held bad" style="margin-top:16px">Returned by
-  {esc(draft["decided_by"])}. {esc(draft["note"] or "")}</div>
-</section>"""
+        return (
+            verdict
+            + '<p class="pane-title">The letter you returned</p>'
+            + letter
+            + f"""<div class="held bad" style="margin-top:16px">
+  <p class="bad">Returned</p>By {esc(draft["decided_by"])}.
+  {esc(draft["note"] or "")}</div>""",
+            '<span class="hint">Returned. Nothing will be sent.</span>',
+        )
 
     if draft["decision"] == "APPROVED":
-        return f"""<section>
-  <h2>Approved, not yet sent</h2>
-  {letter}
-  <div class="held ok" style="margin-top:16px">Approved by
-  {esc(draft["decided_by"])}. Approving and sending are separate powers:
-  this account can authorise a letter but cannot send one.</div>
-  <div class="decide">
-    <form method="post" action="/case/{esc(case_id)}/send">
-      <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
-      <input type="hidden" name="approval_id" value="{esc(draft["approval_id"])}">
-      <button type="submit">Send it</button>
-    </form>
-  </div>
-</section>"""
+        return (
+            verdict
+            + '<p class="pane-title">Approved, not yet sent</p>'
+            + letter
+            + f"""<div class="held ok" style="margin-top:16px">
+  <p class="ok">Approved by {esc(draft["decided_by"])}</p>
+  Approving and sending are separate powers. This account can authorise
+  a letter but cannot send one.</div>""",
+            f"""<form method="post" action="/case/{esc(case_id)}/send">
+  <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+  <input type="hidden" name="approval_id" value="{esc(draft["approval_id"])}">
+  <button type="submit">Send it</button>
+  <span class="hint">Carried out by the runtime, which cannot approve.</span>
+</form>""",
+        )
 
-    return f"""<section>
-  <h2>Your decision</h2>
-  {letter}
-  <div class="decide">
-    <form method="post" action="/case/{esc(case_id)}/decide">
-      <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
-      <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
-      <input type="hidden" name="seen_digest" value="{esc(draft["content_digest"])}">
-      <input type="text" name="note" placeholder="Note, optional">
-      <button type="submit" name="decision" value="APPROVED">Approve this letter</button>
-      <button type="submit" name="decision" value="REJECTED" class="quiet">Return it</button>
-    </form>
-  </div>
-  <p class="note" style="margin-top:10px">Approving records these exact
-  words. If they change afterwards, the approval stops being valid.</p>
-</section>"""
+    return (
+        verdict
+        + '<p class="pane-title">The letter the agent proposes</p>'
+        + letter,
+        f"""<form method="post" action="/case/{esc(case_id)}/decide">
+  <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+  <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
+  <input type="hidden" name="seen_digest" value="{esc(draft["content_digest"])}">
+  <button type="submit" name="decision" value="APPROVED">Approve this letter</button>
+  <button type="submit" name="decision" value="REJECTED" class="quiet">Return it</button>
+  <input type="text" name="note" placeholder="Note, optional">
+  <span class="hint">Approves these exact words.</span>
+</form>""",
+    )
+
+
+def _context(messages, revision, run, trace, draft, items, case_id):
+    blocks = []
+
+    if messages:
+        sender, subject, body_text, _r, _s, _m, _p = messages[0]
+        blocks.append(
+            f"""<div class="block"><h2>What the client wrote</h2>
+  <p class="from">{esc(sender)} &middot; {esc(subject)}</p>
+  <div class="quote">{esc(body_text)}</div></div>"""
+        )
+
+    blocks.append(
+        f"""<div class="block"><h2>What the agent found</h2>
+  <p class="finding">{esc(revision["summary"])}</p></div>"""
+    )
+
+    facts = [("Decision", revision["decision_state"])]
+
+    if run:
+        facts += [("Run", run[0]), ("Runner", run[2]), ("Model", run[3])]
+
+    if draft:
+        facts.append(("Content digest", draft["content_digest"]))
+
+        if draft["approved_digest"]:
+            facts.append(("Approved digest", draft["approved_digest"]))
+
+    rows = "".join(
+        f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in facts
+    )
+
+    trace_html = "".join(
+        f'<div class="{"refused" if err else ""}">{esc(seq)}. {esc(name)}'
+        f'{" &mdash; refused: " + esc(err) if err else ""}</div>'
+        for seq, name, _a, _r, err in trace
+    )
+
+    blocks.append(
+        f"""<div class="block"><h2>How this was produced</h2>
+  <dl class="facts">{rows}</dl>
+  <div class="trace">{trace_html}</div></div>"""
+    )
+
+    others = "".join(
+        f'<a href="/case/{esc(i["case_id"])}">'
+        f'<span class="ref">{esc(i["reference"])}</span>'
+        f'<span class="need">{esc(NEEDS.get(i["awaiting"], ""))}</span></a>'
+        for i in items
+        if i["case_id"] != case_id
+    )
+
+    if others:
+        blocks.append(
+            f'<div class="block others"><h2>Other matters</h2>{others}</div>'
+        )
+
+    return "".join(blocks)
 
 
 def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
@@ -263,42 +332,35 @@ def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     run = runs[0] if runs else None
     trace = queries.tool_calls(conn, run[0]) if run else []
 
+    crumb = f'<span class="matter">{esc(reference)}</span>'
+
     if revision is None:
-        body = f"""<main>
-  <p class="eyebrow">Matter {esc(reference)}</p>
-  <h1>The agent has not looked at this yet.</h1>
-  <p class="sub">Its conclusion and the letter it proposes will appear
-  here once it runs.</p>
-  {_others_html(items, case_id)}
-</main>"""
-        return page(reference, body, reviewers, reviewer_id, flash)
+        body = """<div class="panes"><div class="primary"><div class="empty">
+  <h1 style="font-size:20px;margin:0 0 6px">Not looked at yet.</h1>
+  The agent has not read this matter. Its conclusion and the letter it
+  proposes will appear here once it runs.
+</div></div><div class="context"></div></div>"""
 
-    enquiry_html = ""
+        return page(reference, body, reviewers, reviewer_id, flash, crumb)
 
-    if messages:
-        sender, subject, body_text, _received, _s, _m, _p = messages[0]
-        enquiry_html = f"""<section>
-  <h2>What the client wrote</h2>
-  <p class="from">{esc(sender)} &middot; {esc(subject)}</p>
-  <div class="quote">{esc(body_text)}</div>
-</section>"""
+    scroller, bar = _primary(case_id, revision, draft, conn, reviewer_id)
+    kind, label = CHIP.get(
+        revision["decision_state"], ("", revision["decision_state"])
+    )
 
-    state = revision["decision_state"]
+    crumb += f'<span class="chip {kind}">{esc(label)}</span>'
 
-    body = f"""<main>
-  <p class="eyebrow">Matter {esc(reference)}</p>
-  <h1>{esc(VERDICT.get(state, state))}</h1>
-  {enquiry_html}
-  <section>
-    <h2>What the agent found</h2>
-    <div class="finding">{esc(revision["summary"])}</div>
-  </section>
-  {_action_html(case_id, revision, draft, conn, reviewer_id)}
-  {_provenance_html(revision, run, trace, draft)}
-  {_others_html(items, case_id)}
-</main>"""
+    body = f"""<div class="panes">
+  <div class="primary">
+    <div class="scroller">{scroller}</div>
+    <div class="bar">{bar}</div>
+  </div>
+  <div class="context">
+    {_context(messages, revision, run, trace, draft, items, case_id)}
+  </div>
+</div>"""
 
-    return page(reference, body, reviewers, reviewer_id, flash)
+    return page(reference, body, reviewers, reviewer_id, flash, crumb)
 
 
 class Handler(BaseHTTPRequestHandler):
