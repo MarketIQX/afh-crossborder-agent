@@ -1,0 +1,76 @@
+{
+  "suite": "CLAIM_VERIFICATION",
+  "about": "Does the verification graph accept exactly the claims a professional would accept, given only the passage cited? Every case carries the reason it exists, because a golden case whose purpose nobody remembers gets deleted the first time it fails.",
+  "passages": {
+    "residency_tests": "An individual is resident in India in a previous year if they are in India for a period of 182 days or more in that year. An individual is also resident in India in a previous year if they are in India for 60 days or more in that year and for 365 days or more in the four years immediately preceding that year.",
+    "rnor": "A resident individual is not ordinarily resident in India in a previous year if they have been a non-resident in India in nine out of the ten previous years preceding that year, or have been in India for a period of 729 days or less during the seven previous years preceding that year.",
+    "scope": "The total income of a resident includes income which accrues or arises outside India. The total income of a non-resident includes only income which is received in India, or which accrues or arises in India, or which is deemed to accrue or arise in India.",
+    "visiting": "For an Indian citizen or a person of Indian origin who is outside India and comes on a visit to India, the period of 60 days in the second test is read as 182 days, except where total income other than income from foreign sources exceeds fifteen lakh rupees, in which case it is read as 120 days."
+  },
+  "cases": [
+    {
+      "key": "exact_182_day_test",
+      "topic": "tax_residency",
+      "passage": "residency_tests",
+      "claim": "An individual who is in India for 182 days or more in the year is resident in India for that year.",
+      "expected": "SUPPORTED",
+      "rationale": "Accurate and complete statement of one of two alternative tests. Stating one alternative is narrower than the passage, never wider, so it is not overreach. A checker that rejects this is mis-calibrated and will train the reviewer to ignore it."
+    },
+    {
+      "key": "wrong_threshold",
+      "topic": "tax_residency",
+      "passage": "residency_tests",
+      "claim": "An individual who is in India for 90 days or more in the year is resident in India for that year.",
+      "expected": "NOT_SUPPORTED",
+      "rationale": "The number is simply wrong. The cheapest possible failure to catch, and the one whose escape would be least forgivable."
+    },
+    {
+      "key": "drops_conjunctive_condition",
+      "topic": "tax_residency",
+      "passage": "residency_tests",
+      "claim": "An individual who is in India for 60 days or more in the year is resident in India for that year.",
+      "expected": "NOT_SUPPORTED",
+      "rationale": "The phrase appears word for word in the passage and the claim is still wrong: the passage joins 60 days to a second condition with AND, and dropping it makes residents of people the passage does not. A faithfulness check alone passes this. It is the case that justifies a second challenger."
+    },
+    {
+      "key": "absent_from_passage",
+      "topic": "tax_residency",
+      "passage": "residency_tests",
+      "claim": "A resident who was a non-resident in nine of the ten preceding years is not ordinarily resident.",
+      "expected": "NOT_SUPPORTED",
+      "rationale": "True in the world and absent from what was cited. The question is whether this citation carries this claim, not whether the claim is correct, and a verifier that cannot hold that distinction is useless for auditing."
+    },
+    {
+      "key": "rnor_stated_correctly",
+      "topic": "tax_residency",
+      "passage": "rnor",
+      "claim": "A resident individual is not ordinarily resident if they were non-resident in nine of the ten preceding years, or were in India for 729 days or less in the seven preceding years.",
+      "expected": "SUPPORTED",
+      "rationale": "Both limbs present, both thresholds right, disjunction preserved. The same claim that fails against the wrong passage must pass against the right one, or the checker is reading the claim rather than the citation."
+    },
+    {
+      "key": "resident_scope_correct",
+      "topic": "double_taxation",
+      "claim": "A resident's total income includes income accruing or arising outside India.",
+      "passage": "scope",
+      "expected": "SUPPORTED",
+      "rationale": "Plainly stated. Present so the suite is not composed only of failures: a suite that only ever expects rejection is passed by a checker that rejects everything."
+    },
+    {
+      "key": "widens_to_non_residents",
+      "topic": "double_taxation",
+      "passage": "scope",
+      "claim": "Total income includes income accruing or arising outside India.",
+      "expected": "NOT_SUPPORTED",
+      "rationale": "Drops the word resident, which widens the rule to non-residents and reverses what the passage says about them. Overreach by deletion rather than by addition, which is the harder kind to see."
+    },
+    {
+      "key": "ignores_the_exception",
+      "topic": "tax_residency",
+      "passage": "visiting",
+      "claim": "For a person of Indian origin visiting India, the 60 day period is read as 182 days.",
+      "expected": "NOT_SUPPORTED",
+      "rationale": "Correct until the exception. The passage carries a fifteen lakh threshold that substitutes 120 days, and a claim that stops before it will be relied on by exactly the clients the exception exists for."
+    }
+  ]
+}
