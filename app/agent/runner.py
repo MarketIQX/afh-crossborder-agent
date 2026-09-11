@@ -239,6 +239,7 @@ def execute(
             case_id=ctx.case_id,
             service_id=ctx.service_id,
             run_id=run_id,
+            service_key=getattr(ctx, "service_key", "") or "",
         )
 
         trace = tools_module.ToolTrace(conn, run_id)

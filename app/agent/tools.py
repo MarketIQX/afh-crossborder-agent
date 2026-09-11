@@ -51,6 +51,26 @@ class Binding:
     service_id: str
     run_id: str
 
+    # The same service, spelled the way a person writes it. The model
+    # reaches for this before it reaches for a UUID, and that is not a
+    # scope violation.
+    service_key: str = ""
+
+    def names_bound_service(self, candidate):
+        """Is `candidate` this run's own service, under either name?"""
+        if candidate is None:
+            return True
+
+        wanted = str(candidate).strip().lower()
+
+        if not wanted:
+            return True
+
+        return wanted in {
+            str(self.service_id).strip().lower(),
+            str(self.service_key).strip().lower(),
+        } - {""}
+
 
 @dataclass
 class ProposalRecord:
@@ -161,7 +181,7 @@ class AgentTools:
         """Return approved, effective knowledge for the bound service."""
         arguments = {"query": query, "service_id": service_id}
 
-        if service_id is not None and service_id != self._binding.service_id:
+        if not self._binding.names_bound_service(service_id):
             message = (
                 "service_id does not match the scope bound to this run. "
                 "Refusing to retrieve knowledge for another service."

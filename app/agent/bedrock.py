@@ -17,9 +17,32 @@ evidence needed to fix access. A vague "AWS access" report is not.
 """
 
 import re
+from pathlib import Path
 
 from strands import Agent, tool
 from strands.models import BedrockModel
+
+from strands.vended_plugins.skills import AgentSkills
+
+from app.agent import hooks as hooks_module
+from app.agent import steering as steering_module
+
+SKILLS_DIR = Path(__file__).resolve().parent / "skills"
+
+
+def build_skills_plugin():
+    """Load every skill directory. Absent skills are not an error."""
+    if not SKILLS_DIR.is_dir():
+        return None
+
+    directories = sorted(
+        str(path) for path in SKILLS_DIR.iterdir() if path.is_dir()
+    )
+
+    if not directories:
+        return None
+
+    return AgentSkills(skills=directories)
 
 from app import config
 from app.agent import tools as tools_module
@@ -336,14 +359,61 @@ class BedrockStrandsModel:
 
         model = BedrockModel(**model_kwargs)
 
-        agent = Agent(
-            model=model,
-            tools=build_tool_functions(bound),
-            system_prompt=SYSTEM_PROMPT,
-        )
+        # Deterministic control at the agent's own lifecycle points.
+        # The bound service and the trace both come from the tool object,
+        # so a hook and a tool can never disagree about which case this
+        # run belongs to.
+        binding = getattr(bound, "_binding", None)
+        trace = getattr(bound, "_trace", None)
+
+        if binding is None:
+            # The tool-surface check builds an agent it never invokes, so
+            # there is no case and therefore no scope to enforce. Install
+            # what still applies rather than pretending a scope exists.
+            run_hooks = [
+                hooks_module.ToolBudgetHook(trace=trace),
+            ]
+        else:
+            run_hooks = hooks_module.build_hooks(
+                binding.service_id,
+                trace=trace,
+                bound_service_key=getattr(binding, "service_key", ""),
+            )
+
+        run_interventions = steering_module.build_interventions(trace=trace)
+
+        agent_kwargs = {
+            "model": model,
+            "tools": build_tool_functions(bound),
+            "system_prompt": SYSTEM_PROMPT,
+            "hooks": run_hooks,
+            "interventions": run_interventions,
+        }
+
+        skills_plugin = build_skills_plugin()
+
+        if skills_plugin is not None:
+            agent_kwargs["plugins"] = [skills_plugin]
+
+        agent = Agent(**agent_kwargs)
+
+        # Kept on the agent so a run can report what was refused and what
+        # was guided, rather than that evidence living only in the trace.
+        agent.afh_hooks = run_hooks
+        agent.afh_interventions = run_interventions
 
         registered = tuple(sorted(agent.tool_names))
-        expected = tuple(sorted(tools_module.TOOL_NAMES))
+
+        # Two intended groups, named separately so neither can quietly
+        # absorb a tool from the other. The domain tools carry every
+        # authority the agent has; the SDK group exists only because a
+        # plugin we chose installs it.
+        sdk_provided = (
+            ("skills",) if agent_kwargs.get("plugins") else ()
+        )
+        expected = tuple(
+            sorted(tuple(tools_module.TOOL_NAMES) + sdk_provided)
+        )
 
         if registered != expected:
             raise BedrockInvocationFailed(

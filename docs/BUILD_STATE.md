@@ -219,8 +219,9 @@ Two things no stub could have produced.
 
 **The model reached outside its scope, and the boundary held.** At
 sequence 2 and 3 of both recorded runs, Claude Sonnet 4.5 called
-`get_service_knowledge` with a `service_id` of its own choosing. The
-server refused both, recorded the attempts with their reason, and the
+`get_service_knowledge` naming its own bound service by key rather than
+UUID. The server wrongly refused both as out of scope, recorded them, and
+the
 model then called the tool correctly and finished the work. Every scope
 test before this used a deliberately hostile stub written to attempt the
 violation. This was a frontier model reasoning normally about a real

@@ -110,10 +110,14 @@ particular account.
 
 One result from those runs is worth reporting because no stub could have
 produced it. On two separate cases the model called
-`get_service_knowledge` with a `service_id` of its own choosing, outside
-the service bound to the case. The server refused both attempts, recorded
-them as refused tool calls, and the model then called correctly and
-completed the work. The boundary was tested by the model, not by us.
+`get_service_knowledge` naming the service by its key rather than its
+UUID, and the server refused it as out of scope. That was our defect,
+not the model testing a boundary: the key it used belonged to the very
+service bound to the run. Both the tool and the lifecycle hook now
+accept the bound service under either name and still refuse a genuinely
+different one. The episode is recorded here because the refusals were
+previously described in this file as the model attempting to reach
+another service's knowledge, and that description was wrong.
 
 ## What is not built
 

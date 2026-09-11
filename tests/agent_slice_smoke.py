@@ -797,29 +797,51 @@ def agent18_tool_object_exposes_exactly_four_tools():
     )
 
 
-def agent19_strands_registers_exactly_four_tools():
+# The only tool permitted on the registered surface that is not one of
+# ours. It belongs to the skills plugin, which loads a capability file on
+# demand. It carries no authority over a case: it reads instructions.
+SDK_PROVIDED_TOOLS = ("skills",)
+
+
+def agent19_strands_registers_only_intended_tools():
     """Prove the tool surface at SDK registration, not just on our object.
 
     AGENT18 asserts what our own object exposes. This asserts what the
     Strands agent will actually offer the model, which is the claim that
     matters and the one a database constraint could never support. It
     needs no AWS credentials, so it holds while invocation is blocked.
+
+    Two groups, named separately so neither can quietly absorb a tool
+    from the other. Every authority over a case lives in the four domain
+    tools. The skills loader is permitted because we installed the plugin
+    on purpose; anything else is a surprise and fails.
     """
     from app.agent import bedrock
 
     agent = bedrock.BedrockStrandsModel().build_agent(None)
 
-    registered = tuple(sorted(agent.tool_names))
-    expected = tuple(sorted(tools_module.TOOL_NAMES))
+    registered = set(agent.tool_names)
+    domain = set(tools_module.TOOL_NAMES)
 
-    if registered != expected:
+    missing = sorted(domain - registered)
+
+    if missing:
         raise RuntimeError(
-            f"AGENT19 FAIL: registered {registered}, expected {expected}"
+            f"AGENT19 FAIL: domain tools missing from the surface: {missing}"
+        )
+
+    unexpected = sorted(registered - domain - set(SDK_PROVIDED_TOOLS))
+
+    if unexpected:
+        raise RuntimeError(
+            f"AGENT19 FAIL: the agent registered tools we did not "
+            f"intend: {unexpected}"
         )
 
     print(
-        "AGENT19 STRANDS REGISTERS EXACTLY FOUR TOOLS: PASS "
-        f"({', '.join(registered)})"
+        "AGENT19 STRANDS REGISTERS ONLY INTENDED TOOLS: PASS "
+        f"({len(domain)} domain, "
+        f"{len(registered - domain)} sdk-provided)"
     )
 
 
@@ -1061,7 +1083,7 @@ def phase1():
     agent15_tool_surface_is_bounded(supported)
     agent16_agent_fact_is_proposed_and_attributed()
     agent18_tool_object_exposes_exactly_four_tools()
-    agent19_strands_registers_exactly_four_tools()
+    agent19_strands_registers_only_intended_tools()
     agent20_fixture_digests_match_their_passages()
     agent21_simulated_fixture_cannot_reach_the_application()
     agent22_identity_gate_cannot_be_bypassed()
