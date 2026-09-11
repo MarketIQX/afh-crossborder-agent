@@ -54,7 +54,16 @@ _COMMIT_RE = re.compile(r"COMMIT\s*;\s*\Z", re.IGNORECASE)
 
 
 def _digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """SHA-256 over the file, normalised to LF line endings.
+
+    Detects edited SQL. Deliberately does not detect the line-ending
+    convention of the machine that checked the file out, because that
+    would make every cross-platform clone look like tampering.
+    """
+    raw = path.read_bytes()
+    normalised = raw.replace(b"\r\n", b"\n")
+
+    return hashlib.sha256(normalised).hexdigest()
 
 
 def _discover():
@@ -161,6 +170,47 @@ def _record(cur, path, digest, mode):
     )
 
 
+def _rehash(conn, files, ledger):
+    """Re-record digests for applied migrations under the current method.
+
+    Only rows whose file is still present are touched, and every change
+    is printed with both values so the operator can see what was
+    re-recorded rather than trusting that nothing moved.
+    """
+    changed = []
+
+    for path in files:
+        recorded = ledger.get(path.name)
+
+        if recorded is None:
+            continue
+
+        current = _digest(path)
+
+        if recorded[0] != current:
+            changed.append((path.name, recorded[0], current))
+
+    if not changed:
+        print("MIGRATE REHASH: every recorded digest already matches")
+        return 0
+
+    with conn.cursor() as cur:
+        for filename, old, new in changed:
+            cur.execute(
+                "UPDATE app.schema_migrations SET sha256 = %s "
+                "WHERE filename = %s",
+                (new, filename),
+            )
+            print(
+                f"MIGRATE REHASHED: {filename} {old[:12]} -> {new[:12]}"
+            )
+
+    conn.commit()
+
+    print(f"MIGRATE REHASH: {len(changed)} digest(s) re-recorded")
+    return 0
+
+
 def run(mode):
     settings = config.database_settings()
     files = _discover()
@@ -177,7 +227,7 @@ def run(mode):
         report, pending, drifted = _classify(files, ledger)
         _print_report(report)
 
-        if drifted:
+        if drifted and mode != "rehash":
             raise SystemExit(
                 "MIGRATE: FAIL. A migration changed after it was applied, "
                 "or an applied migration is gone from the repository. "
@@ -187,6 +237,9 @@ def run(mode):
         if mode == "status":
             print(f"MIGRATE STATUS: {len(pending)} pending")
             return 0
+
+        if mode == "rehash":
+            return _rehash(conn, files, ledger)
 
         if mode == "verify":
             if pending:
@@ -222,7 +275,7 @@ def run(mode):
 
 
 def main(argv):
-    modes = ("status", "verify", "apply", "adopt")
+    modes = ("status", "verify", "apply", "adopt", "rehash")
 
     if len(argv) != 2 or argv[1] not in modes:
         raise SystemExit(f"Usage: python -m app.db.migrate {'|'.join(modes)}")
@@ -231,6 +284,14 @@ def main(argv):
         print(
             "WARNING: adopt records migrations as applied without running "
             "them. This is an operator assertion, not verified proof."
+        )
+
+    if argv[1] == "rehash":
+        print(
+            "WARNING: rehash re-records digests for migrations already "
+            "applied. Run it only when the digest METHOD changed, never "
+            "to silence a real edit. You are asserting the SQL itself is "
+            "unchanged."
         )
 
     try:

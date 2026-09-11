@@ -204,6 +204,44 @@ permission to erase arbitrary state. The normal route remains
 `scripts/verify_clean_slate.py`, which builds and destroys its own
 instance. The primary stays unmarked.
 
+## APPROACHES TRIED AND ABANDONED
+
+Recorded so a later session does not re-attempt them. Each was live in
+the tree at some point and was removed for the stated reason.
+
+1. **A force flag on the Bedrock probe.** It recorded whether the caller
+   was root and then invoked anyway when forced, so the check was
+   decorative. Replaced by `enforce_identity()` in the adapter ahead of
+   every invocation, with no override parameter at all.
+
+2. **One simulated knowledge fixture shared by every suite.** Suites
+   leave fixtures in place until their own cleanup, so one suite's
+   cleanup deleted knowledge another suite's runs still referenced.
+   Replaced by per-suite slots with distinct identifiers.
+
+3. **A process-wide single-run lock applied to every mode.** It broke
+   AGENT12, which proves durability by re-reading a proposal from a
+   child process. The lock now covers write modes only.
+
+4. **Passing `region_name` alongside `boto_session` to BedrockModel.**
+   The SDK rejects both together. The region is now carried by the
+   session itself, rebuilt when the caller's session has none.
+
+5. **Rebuilding a session from `session.profile_name`.** boto3 reports
+   `"default"` even when no such profile is configured, so this raised
+   ProfileNotFound. Falls back to an unnamed session carrying the
+   region.
+
+6. **Byte-exact migration digests.** A CRLF checkout changes every byte
+   without changing any SQL, so a valid clone on another platform
+   reported drift. Digests are now taken over LF-normalised content,
+   with `.gitattributes` pinning the repository.
+
+7. **Rolling back migration 005 by deleting the database volume.**
+   Rejected on review: destructive, and row counts from selected tables
+   do not prove a volume holds nothing worth keeping. Corrections go
+   forward as new migrations.
+
 ## NOT DONE, AND NOT CLAIMED
 
 - **Gmail adapter contract tests.** Cursor ordering, replay and

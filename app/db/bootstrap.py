@@ -86,6 +86,7 @@ def _ensure_privileges(cur, settings):
     so the least-privilege surface stays reviewable in version control.
     """
     app_role = sql.Identifier(settings.app_user)
+    reviewer_role = sql.Identifier(settings.reviewer_user)
     schema = sql.Identifier(SCHEMA)
     database = sql.Identifier(settings.dbname)
 
@@ -106,6 +107,24 @@ def _ensure_privileges(cur, settings):
     cur.execute(
         sql.SQL("REVOKE CREATE ON SCHEMA {} FROM {}").format(
             schema, app_role
+        )
+    )
+
+    cur.execute(
+        sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+            database, reviewer_role
+        )
+    )
+
+    cur.execute(
+        sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
+            schema, reviewer_role
+        )
+    )
+
+    cur.execute(
+        sql.SQL("REVOKE CREATE ON SCHEMA {} FROM {}").format(
+            schema, reviewer_role
         )
     )
 
@@ -157,6 +176,7 @@ def _verify(cur, settings):
 def run():
     settings = config.database_settings()
     app_password = config.require("POSTGRES_APP_PASSWORD")
+    reviewer_password = config.require("POSTGRES_REVIEWER_PASSWORD")
 
     print(f"BOOTSTRAP TARGET: {settings.target()}")
 
@@ -164,6 +184,14 @@ def run():
         with conn.cursor() as cur:
             role_state = _ensure_role(cur, settings.app_user, app_password)
             print(f"BOOTSTRAP ROLE {settings.app_user}: {role_state}")
+
+            reviewer_state = _ensure_role(
+                cur, settings.reviewer_user, reviewer_password
+            )
+            print(
+                f"BOOTSTRAP ROLE {settings.reviewer_user}: "
+                f"{reviewer_state}"
+            )
 
             schema_state = _ensure_schema(cur, settings.admin_user)
             print(f"BOOTSTRAP SCHEMA {SCHEMA}: {schema_state}")

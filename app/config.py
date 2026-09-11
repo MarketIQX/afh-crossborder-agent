@@ -22,6 +22,7 @@ _SECRET_KEYS = frozenset(
     {
         "POSTGRES_ADMIN_PASSWORD",
         "POSTGRES_APP_PASSWORD",
+        "POSTGRES_REVIEWER_PASSWORD",
     }
 )
 
@@ -106,6 +107,7 @@ class DatabaseSettings:
     dbname: str
     admin_user: str
     app_user: str
+    reviewer_user: str
 
     def admin_kwargs(self):
         return {
@@ -125,6 +127,16 @@ class DatabaseSettings:
             "password": require("POSTGRES_APP_PASSWORD"),
         }
 
+    def reviewer_kwargs(self):
+        """Connection for actions only a reviewer may perform."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "dbname": self.dbname,
+            "user": self.reviewer_user,
+            "password": require("POSTGRES_REVIEWER_PASSWORD"),
+        }
+
     def target(self):
         """Human readable target with no credential material."""
         return f"{self.host}:{self.port}/{self.dbname}"
@@ -138,4 +150,7 @@ def database_settings():
         dbname=get("POSTGRES_DB", "agents_for_humans"),
         admin_user=get("POSTGRES_ADMIN_USER", "agents_admin"),
         app_user=get("POSTGRES_APP_USER", "agents_app"),
+        reviewer_user=get(
+            "POSTGRES_REVIEWER_USER", "agents_reviewer"
+        ),
     )

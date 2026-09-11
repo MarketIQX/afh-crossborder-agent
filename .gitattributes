@@ -1,0 +1,10 @@
+# Keep text files LF in the repository and the working tree on
+# every platform. Migration digests are taken over normalised
+# content, but consistent checkouts keep diffs readable too.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
