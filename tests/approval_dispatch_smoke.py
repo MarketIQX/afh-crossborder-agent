@@ -164,8 +164,9 @@ def seed():
                 (OTHER_CASE_ID, "APPROVE-FIXTURE-002"),
             ):
                 cur.execute(
-                    "INSERT INTO app.cases (id, service_id, reference) "
-                    "VALUES (%s, %s, %s)",
+                    "INSERT INTO app.cases (id, service_id, reference, "
+                    "triage_method, triaged_at) "
+                    "VALUES (%s, %s, %s, 'HUMAN', now())",
                     (case_id, SERVICE_ID, reference),
                 )
 

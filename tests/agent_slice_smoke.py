@@ -215,8 +215,9 @@ def seed():
                     service = SERVICE_TAX
 
                 cur.execute(
-                    "INSERT INTO app.cases (id, service_id, reference) "
-                    "VALUES (%s, %s, %s)",
+                    "INSERT INTO app.cases (id, service_id, reference, "
+                    "triage_method, triaged_at) "
+                    "VALUES (%s, %s, %s, 'HUMAN', now())",
                     (case_id, service, f"AGENT-FIXTURE-{index:03d}"),
                 )
 

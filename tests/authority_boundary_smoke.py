@@ -104,8 +104,9 @@ def seed():
     with admin_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO app.cases (id, service_id, reference) "
-                "VALUES (%s, %s, %s)",
+                "INSERT INTO app.cases (id, service_id, reference, "
+                "triage_method, triaged_at) "
+                "VALUES (%s, %s, %s, 'HUMAN', now())",
                 (CASE_ID, SERVICE_ID, "AUTH-FIXTURE-001"),
             )
         conn.commit()

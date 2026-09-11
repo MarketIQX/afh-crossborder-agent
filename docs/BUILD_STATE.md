@@ -457,3 +457,84 @@ implying otherwise in its opening paragraph, which it previously did.
 
 "Entrant ownership decision, still PENDING in `PROVENANCE.md`" under
 EXTERNAL DEPENDENCIES is stale. It was resolved in `f0a2d11`.
+
+## 2026-09-11 EVENING: THE SUPERVISOR
+
+The brief asks for an agent that "runs autonomously in the background and
+only surfaces when there's a real decision to make." Until now the
+surfacing half was built and enforced, and the running half was a person
+typing `scripts/run_case.py <case_id>`. This closes that.
+
+    fetch mail  ->  triage  ->  reason  ->  draft  ->  [STOP]
+
+`app/autonomy/loop.py` drives those stages on a timer and stops where a
+human judgment is genuinely required. It never approves and never
+sends, and `AUTO07` asserts that structurally: the module may not
+reference approval, the dispatcher, or any send provider. Autonomy here
+means nobody has to start the work, not that nobody has to authorise the
+outcome.
+
+### Triage stopped being a manual break
+
+`app/autonomy/router.py` decides which service a case belongs to by
+matching seeded keywords against the client's own words. There is no
+language model in it, and `AUTO08` asserts that too.
+
+The reason is not simplicity. The model must never choose its own service
+scope, because that is exactly the boundary it has twice been recorded
+attempting to cross. Handing it triage would hand it the thing it tried
+to reach. A deterministic router is not the model, so letting it route
+preserves the property that matters.
+
+A privilege note worth recording, because it corrects a belief: the
+runtime role already held `UPDATE` on `cases.service_id`. Triage was
+"operator only" because no agent tool reached it, not because a grant
+prevented it. That is still true and is now stated rather than assumed.
+
+### Dominance, not uniqueness
+
+The first router refused any case where two services matched. Run
+read-only against the two real persisted enquiries before being trusted,
+it refused both. Priya's enquiry says "residency" and "resident" and asks
+about filing a return, and is unmistakable to any reader, but she also
+mentions a "rented flat", which tripped a capital-gains keyword. One
+incidental noun vetoed the whole decision.
+
+The rule is now dominance: the leading service must carry at least two
+distinct matches and at least twice the nearest rival's. Both real cases
+now route. A genuine straddle, someone asking about residency and FEMA
+remittance together, still fails that test and still reaches a person.
+
+The seeded keyword data was deliberately left alone. "flat" is a weak
+keyword, but weak keywords are a permanent condition of matching human
+prose, and an algorithm that only works on a hand-tuned vocabulary is not
+worth defending.
+
+### A scope can no longer be acquired anonymously
+
+Migration `009_autonomous_triage.sql` adds `triage_method` and
+`triaged_at` to cases, with a constraint that a service scope requires
+both. `app.triage_attempts` records every routing decision including the
+refusals, so a reviewer reading the queue can see what the machine found
+ambiguous rather than guessing why a case is still waiting.
+
+That constraint immediately broke three test fixtures and one production
+path, all of which had been assigning a service scope anonymously with
+nothing objecting. `assign_service` and the fixtures now record `HUMAN`.
+Breaking them was the point.
+
+### State
+
+116 checks across eight suites, passing from a clean slate.
+`AUTO01-AUTO09` are new.
+
+Still not built, and next:
+
+- **The dashboard.** There is still one screen showing one matter,
+  reached by URL. No queue, no drafts view, no knowledge view, no
+  learning view. This is the largest remaining gap and it sits on the
+  Design criterion.
+- **Drafting inside the loop.** The cycle reports a `drafted` count that
+  is always zero, because composing is still triggered from the console.
+- **Real dispatch.** Still `SimulatedProvider` in the console.
+- **The teaching loop.** Not started.

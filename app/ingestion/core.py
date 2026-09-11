@@ -435,7 +435,9 @@ def assign_service(conn, case_id, service_key):
                 raise ValueError(f"no active service {service_key!r}")
 
             cur.execute(
-                "UPDATE app.cases SET service_id = %s, updated_at = now() "
+                "UPDATE app.cases SET service_id = %s, "
+                "triage_method = 'HUMAN', triaged_at = now(), "
+                "updated_at = now() "
                 "WHERE id = %s",
                 (row[0], case_id),
             )
