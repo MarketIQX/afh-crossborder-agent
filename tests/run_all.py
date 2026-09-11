@@ -29,6 +29,14 @@ STEPS = (
     ("agent slice end to end", ["tests/agent_slice_smoke.py", "phase1"]),
     ("ingestion", ["tests/ingestion_smoke.py", "phase1"]),
     ("reviewer view", ["tests/reviewer_view_smoke.py", "phase1"]),
+    (
+        "approval and dispatch",
+        ["tests/approval_dispatch_smoke.py", "phase1"],
+    ),
+    (
+        "approval fixture cleanup",
+        ["tests/approval_dispatch_smoke.py", "cleanup"],
+    ),
     ("reviewer fixture cleanup", ["tests/reviewer_view_smoke.py", "cleanup"]),
     ("ingestion fixture cleanup", ["tests/ingestion_smoke.py", "cleanup"]),
     ("agent fixture cleanup", ["tests/agent_slice_smoke.py", "cleanup"]),

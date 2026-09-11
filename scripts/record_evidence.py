@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO_ROOT))
 DEFAULT_OUT = REPO_ROOT / "docs" / "evidence"
 
 CHECK_RE = re.compile(
-    r"^((?:DB|AUTH|AGENT|INGEST|VIEW)\d{2}[^:\r\n]*): (PASS|FAIL)",
+    r"^((?:DB|AUTH|AGENT|APPROVE|INGEST|VIEW)\d{2}[^:\r\n]*): (PASS|FAIL)",
     re.MULTILINE,
 )
 
