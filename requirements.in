@@ -1,4 +1,6 @@
+awscrt
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 psycopg[binary]
+strands-agents==1.55.1

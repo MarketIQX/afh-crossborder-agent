@@ -1,0 +1,60 @@
+{
+  "recorded_at": "2026-09-11T03:38:12.607140+00:00",
+  "environment": {
+    "python_executable": "C:\\Users\\marke\\agents-for-humans-nri\\.venv\\Scripts\\python.exe",
+    "python_version": "3.12.10",
+    "packages": {
+      "strands-agents": "1.55.1",
+      "boto3": "1.43.92",
+      "botocore": "1.43.92",
+      "awscrt": null
+    },
+    "aws_env_vars_set": {
+      "AWS_PROFILE": null,
+      "AWS_DEFAULT_PROFILE": null,
+      "AWS_REGION": null,
+      "AWS_DEFAULT_REGION": null,
+      "AWS_CONFIG_FILE": null,
+      "AWS_SHARED_CREDENTIALS_FILE": null,
+      "BEDROCK_MODEL_ID": null
+    }
+  },
+  "configuration": {
+    "runner": "BEDROCK_STRANDS",
+    "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "region": "us-east-1",
+    "temperature": 0.2,
+    "max_tokens": 2048,
+    "streaming": false,
+    "prompt_version": "nri-proposal-prompt-v2",
+    "prompt_digest": "94dbebcce5ca3e4e0869ab7e354317ab6b443eef6a34ed5df1ecef197efefdd7",
+    "session_region": null,
+    "session_profile": "default"
+  },
+  "credentials": {
+    "resolved": false,
+    "provider": null,
+    "error": "the credential provider chain returned nothing"
+  },
+  "identity": {
+    "arn": null,
+    "account": null,
+    "is_root": null,
+    "error": "NoCredentialsError: Unable to locate credentials"
+  },
+  "tool_surface": {
+    "registered": [
+      "get_case_context",
+      "get_service_knowledge",
+      "propose_next_action",
+      "record_proposed_facts"
+    ],
+    "matches_intended": true
+  },
+  "invocation": {
+    "attempted": true,
+    "succeeded": false,
+    "error": "NoCredentialsError: Unable to locate credentials",
+    "stage": "credential resolution"
+  }
+}

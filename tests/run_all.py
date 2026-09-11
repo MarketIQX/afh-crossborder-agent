@@ -1,0 +1,86 @@
+"""One command that runs every deterministic check in order.
+
+The suites are deliberately ordered and stateful: each seeds fixtures,
+asserts behaviour against them, and cleans up. That ordering is part of
+what they prove, so they are run as a sequence rather than collected
+and shuffled by a generic test framework.
+
+Cleanups run last, after every assertion, so a failure leaves the
+fixtures in place to inspect.
+
+Exit code 0 means every check passed. Anything else means it did not,
+and the failing step is named.
+
+Usage:
+
+    python tests/run_all.py
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+STEPS = (
+    ("schema is current", ["-m", "app.db.migrate", "verify"]),
+    ("database integrity", ["tests/db_integrity_smoke.py", "phase1"]),
+    ("authority boundaries", ["tests/authority_boundary_smoke.py", "phase1"]),
+    ("agent slice end to end", ["tests/agent_slice_smoke.py", "phase1"]),
+    ("ingestion", ["tests/ingestion_smoke.py", "phase1"]),
+    ("reviewer view", ["tests/reviewer_view_smoke.py", "phase1"]),
+    ("reviewer fixture cleanup", ["tests/reviewer_view_smoke.py", "cleanup"]),
+    ("ingestion fixture cleanup", ["tests/ingestion_smoke.py", "cleanup"]),
+    ("agent fixture cleanup", ["tests/agent_slice_smoke.py", "cleanup"]),
+    (
+        "authority fixture cleanup",
+        ["tests/authority_boundary_smoke.py", "cleanup"],
+    ),
+    ("database fixture cleanup", ["tests/db_integrity_smoke.py", "cleanup"]),
+)
+
+
+def run_step(label, args):
+    print(f"\n===== {label} =====", flush=True)
+
+    result = subprocess.run(
+        [sys.executable] + args,
+        cwd=str(REPO_ROOT),
+        text=True,
+    )
+
+    return result.returncode == 0
+
+
+def main():
+    sys.stdout.reconfigure(line_buffering=True)
+
+    outcomes = []
+
+    for label, args in STEPS:
+        passed = run_step(label, args)
+        outcomes.append((label, passed))
+
+        if not passed:
+            break
+
+    print("\n===== SUMMARY =====")
+
+    for label, passed in outcomes:
+        print(f"{'PASS' if passed else 'FAIL'}  {label}")
+
+    skipped = len(STEPS) - len(outcomes)
+
+    if skipped:
+        print(f"SKIPPED {skipped} step(s) after the first failure")
+
+    if all(passed for _, passed in outcomes) and not skipped:
+        print("\nALL CHECKS: PASS")
+        return 0
+
+    print("\nALL CHECKS: FAIL")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

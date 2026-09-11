@@ -1,5 +1,6 @@
-import os
 import sys
+from pathlib import Path
+
 import psycopg
 
 from psycopg.errors import (
@@ -8,12 +9,12 @@ from psycopg.errors import (
     CheckViolation,
 )
 
-HOST = "127.0.0.1"
-PORT = 5433
-DB = "agents_for_humans"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-ADMIN_USER = "agents_admin"
-APP_USER = "agents_app"
+from app import config  # noqa: E402
+from app.db import testguard  # noqa: E402
+
+SETTINGS = config.database_settings()
 
 MAILBOX_ID = "91000000-0000-0000-0000-000000000001"
 CASE_ID = "91500000-0000-0000-0000-000000000001"
@@ -29,23 +30,11 @@ CORRELATION_CONSTRAINT = "inbound_messages_case_correlation_consistency"
 
 
 def admin_conn():
-    return psycopg.connect(
-        host=HOST,
-        port=PORT,
-        dbname=DB,
-        user=ADMIN_USER,
-        password=os.environ["DB_ADMIN_PASSWORD"],
-    )
+    return psycopg.connect(**SETTINGS.admin_kwargs())
 
 
 def app_conn():
-    return psycopg.connect(
-        host=HOST,
-        port=PORT,
-        dbname=DB,
-        user=APP_USER,
-        password=os.environ["DB_APP_PASSWORD"],
-    )
+    return psycopg.connect(**SETTINGS.app_kwargs())
 
 
 def seed():
@@ -507,6 +496,21 @@ def phase1():
     print("DATABASE BEHAVIORAL PHASE 1: PASS")
 
 
+def _guard():
+    """Refuse to run unless this database is a marked disposable target.
+
+    Runs before any fixture is written and before any cleanup deletes
+    anything, so a misconfigured environment cannot write to, or delete
+    from, a real instance.
+    """
+    with admin_conn() as conn:
+        token = testguard.assert_disposable(conn)
+
+    testguard.acquire_single_run_lock()
+
+    print(f"TEST TARGET: disposable, token {token}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit(
@@ -514,6 +518,12 @@ if __name__ == "__main__":
         )
 
     mode = sys.argv[1]
+
+    # Only the modes that write fixtures need the target guard and the
+    # single-run lock. Read-only modes stay callable from a child
+    # process while the parent run holds the lock.
+    if mode in ("phase1", "cleanup"):
+        _guard()
 
     if mode == "phase1":
         phase1()
