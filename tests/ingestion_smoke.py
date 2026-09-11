@@ -629,6 +629,47 @@ def ingest13_reply_header_from_stranger_is_quarantined():
     )
 
 
+def ingest14_ingestion_can_refresh_but_never_asks_for_consent():
+    """Refreshing a token is not re-consent, and only one of them is here.
+
+    An access token lasts about an hour, so refusing to refresh made
+    unattended ingestion impossible while protecting nothing: the
+    exchange involves no person. Obtaining consent is the part that must
+    stay deliberate, so this module must have no way to do it.
+    """
+    from app.integrations import gmail_ingest
+
+    source = Path(gmail_ingest.__file__).read_text(encoding="utf-8")
+
+    forbidden = [
+        name
+        for name in ("InstalledAppFlow", "run_local_server", "run_console")
+        if name in source
+    ]
+
+    if forbidden:
+        raise RuntimeError(
+            f"INGEST14 FAIL: ingestion can start a consent flow via "
+            f"{forbidden}; that belongs only in the auth flow"
+        )
+
+    if "creds.refresh(" not in source:
+        raise RuntimeError(
+            "INGEST14 FAIL: ingestion cannot refresh an expired access "
+            "token, so it cannot run unattended"
+        )
+
+    if "RefreshError" not in source:
+        raise RuntimeError(
+            "INGEST14 FAIL: a refused refresh means consent was "
+            "withdrawn and must stop the run, not pass silently"
+        )
+
+    print(
+        "INGEST14 INGESTION REFRESHES BUT NEVER ASKS FOR CONSENT: PASS"
+    )
+
+
 CHECKS = (
     ingest01_new_message_creates_untriaged_case,
     ingest02_duplicate_provider_message_is_absorbed,
@@ -642,6 +683,7 @@ CHECKS = (
     ingest10_ingestion_has_no_outbound_capability,
     ingest12_subject_reference_from_stranger_is_quarantined,
     ingest13_reply_header_from_stranger_is_quarantined,
+    ingest14_ingestion_can_refresh_but_never_asks_for_consent,
     ingest11_ingested_case_reaches_the_agent_only_after_triage,
 )
 

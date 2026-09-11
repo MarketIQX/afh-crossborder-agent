@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
+from google.auth.exceptions import RefreshError
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
@@ -43,12 +45,35 @@ def _credentials():
 
     creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
 
-    if not creds.valid:
+    if creds.valid:
+        return creds
+
+    # An expired access token is the normal state: they last about an
+    # hour. Exchanging the refresh token for a new one involves no
+    # person and no consent screen, so it is not the thing that has to
+    # be deliberate.
+    if not creds.refresh_token:
         raise SystemExit(
-            "Stored Gmail credential is not valid. Reauthorize "
-            "deliberately rather than silently."
+            "Stored Gmail credential has expired and carries no refresh "
+            "token. Reauthorize deliberately:\n"
+            "    python -m app.integrations.gmail_auth_smoke"
         )
 
+    try:
+        creds.refresh(Request())
+    except RefreshError as exc:
+        # This is what withdrawn consent, a revoked grant or an expired
+        # refresh token actually look like. Stop, and make a human do it.
+        raise SystemExit(
+            f"Gmail refused to refresh the stored credential ({exc}). "
+            "Consent was withdrawn or the refresh token expired. "
+            "Reauthorize deliberately:\n"
+            "    python -m app.integrations.gmail_auth_smoke"
+        ) from exc
+
+    # Deliberately not persisted. Writing tokens stays the sole
+    # responsibility of the auth flow, which only saves one after the
+    # Gmail API has proved it works.
     return creds
 
 

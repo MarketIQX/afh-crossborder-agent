@@ -24,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 STEPS = (
     ("schema is current", ["-m", "app.db.migrate", "verify"]),
+    ("environment contract", ["tests/env_contract_smoke.py"]),
     ("database integrity", ["tests/db_integrity_smoke.py", "phase1"]),
     ("authority boundaries", ["tests/authority_boundary_smoke.py", "phase1"]),
     ("agent slice end to end", ["tests/agent_slice_smoke.py", "phase1"]),

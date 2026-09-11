@@ -2,7 +2,7 @@
 
 An agent for professional-services firms advising people who live in one
 country and still have tax and compliance obligations in another. It reads
-an emailed enquiry, works in the background, and surfaces only when a
+an emailed enquiry, does the work unattended, and surfaces only when a
 human judgment is genuinely required.
 
 Built for the AWS Agents for Humans Hackathon on the Strands Agents SDK.
@@ -97,66 +97,124 @@ than losing mail.
 
 ## Current state
 
-`docs/BUILD_STATE.md` is the only status board. Read it before trusting
-any other document here, including this one.
+`docs/BUILD_STATE.md` is the status board and carries more detail than
+this file.
 
-In short: the deterministic backend, ingestion and reviewer view are built
-and verified from a clean checkout. The Bedrock adapter is written and its
-four-tool registration is asserted at SDK level, but no model has been
-invoked yet, so every agent run recorded so far is stamped
-`DETERMINISTIC_STUB`.
+The deterministic backend, ingestion, the reviewer console, and approval
+and dispatch are built and verified from a clean checkout. The agent runs
+on real Amazon Bedrock through the Strands Agents SDK: recorded runs in
+`docs/evidence/real-run-*.json` are stamped `BEDROCK_STRANDS` with model
+`us.anthropic.claude-sonnet-4-5-20250929-v1:0`. Those runs executed in an
+AWS-provided workshop account, which proves the code path rather than any
+particular account.
+
+One result from those runs is worth reporting because no stub could have
+produced it. On two separate cases the model called
+`get_service_knowledge` with a `service_id` of its own choosing, outside
+the service bound to the case. The server refused both attempts, recorded
+them as refused tool calls, and the model then called correctly and
+completed the work. The boundary was tested by the model, not by us.
+
+## What is not built
+
+Stated plainly, because a reader should not have to infer it.
+
+- **Nothing runs on a schedule.** A case is put through the agent by
+  `scripts/run_case.py <case_id>`. There is no poller, scheduler or
+  daemon, so "works in the background" describes the design and not yet
+  the deployment.
+- **No message has been sent to a real recipient through the workflow.**
+  Gmail send is proven separately in `app/integrations/`, with a recorded
+  round trip, but the dispatcher in the reviewer console still uses the
+  simulated provider.
+- **No authentication.** The reviewer is selected from a list, not
+  verified. Role privileges and per-case grants are real and enforced in
+  the database; the identity in front of them is not. The console says so
+  on every page.
+- **No teaching loop yet.** A professional cannot yet answer a knowledge
+  gap and have that answer become reusable verified knowledge.
+- **One corridor.** India only, as described above.
 
 ## Setup
 
-Requires Docker and Python 3.12.
+Requires Docker and Python 3.12. Commands below use the virtual
+environment's interpreter explicitly, because the dependencies are not
+installed system-wide and bare `python` will fail.
 
     python -m venv .venv
     .venv/Scripts/python.exe -m pip install -r requirements-lock.txt
-    cp .env.example .env        # then fill in both database passwords
+
+    cp .env.example .env
+
+`.env.example` is generated from the declared contract in
+`app/config.py`, so it is always complete. Fill in the three database
+passwords, which are the only values needed to build and verify the
+database. The AWS and Gmail sections are required only for the parts that
+use them, and each fails fast naming the missing key rather than guessing.
 
     docker compose up -d
-    python -m app.db.bootstrap  # schema, runtime role, grants
-    python -m app.db.migrate apply
+    .venv/Scripts/python.exe -m app.db.bootstrap    # schema, roles, grants
+    .venv/Scripts/python.exe -m app.db.migrate apply
 
 ## Verifying
 
-Prove the database builds from this repository with no hand-applied state,
-on a disposable container that is created and destroyed by the run:
+106 checks across seven suites. Every one names what it proves, and the
+suites that write to the database refuse to run against a target that has
+not been marked disposable.
 
-    python scripts/verify_clean_slate.py
+Prove the database builds from this repository with no hand-applied
+state, on a container created and destroyed by the run:
 
-Run every check against your own instance:
+    .venv/Scripts/python.exe scripts/verify_clean_slate.py
 
-    python tests/run_all.py
+Run everything against your own instance:
+
+    .venv/Scripts/python.exe tests/run_all.py
 
 Individual suites:
 
-    python tests/db_integrity_smoke.py phase1        # DB01-DB09
-    python tests/authority_boundary_smoke.py phase1  # AUTH01-AUTH21
-    python tests/agent_slice_smoke.py phase1         # AGENT01-AGENT22
-    python tests/ingestion_smoke.py phase1           # INGEST01-INGEST13
-    python tests/reviewer_view_smoke.py phase1       # VIEW01-VIEW10
+    tests/env_contract_smoke.py                  ENV01-ENV08
+    tests/db_integrity_smoke.py phase1           DB01-DB10
+    tests/authority_boundary_smoke.py phase1     AUTH01-AUTH21
+    tests/agent_slice_smoke.py phase1            AGENT01-AGENT22
+    tests/ingestion_smoke.py phase1              INGEST01-INGEST14
+    tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
+    tests/approval_dispatch_smoke.py phase1      APPROVE01-APPROVE20
+
+`env_contract_smoke.py` needs no database and no credentials. It checks
+this repository's own claims: that `.env.example` matches the declared
+contract, that every setting the code reads is declared, that no real
+account id or usable secret appears in the example, and that the file
+names and check ranges printed above are true. Those statements were all
+false at one point, and nothing caught it, so now something does.
 
 ## Running it
 
-    python scripts/register_mailbox.py you@example.com   # operator, admin
-    python -m app.integrations.gmail_ingest --dry-run    # fetch, no write
-    python -m app.integrations.gmail_ingest              # ingest a batch
-    python -m app.reviewer.server                        # inspection view
-    python scripts/bedrock_probe.py                      # AWS readiness
-    python scripts/run_case.py <case_id>                 # real agent run
+    .venv/Scripts/python.exe scripts/register_mailbox.py you@example.com
+    .venv/Scripts/python.exe -m app.integrations.gmail_ingest --dry-run
+    .venv/Scripts/python.exe -m app.integrations.gmail_ingest
+    .venv/Scripts/python.exe scripts/register_reviewer.py "Name" a@b.example
+    .venv/Scripts/python.exe scripts/bedrock_probe.py
+    .venv/Scripts/python.exe scripts/run_case.py <case_id>
+    .venv/Scripts/python.exe -m app.reviewer.server
+
+The last command serves the reviewer console on
+`http://127.0.0.1:8080/`. It is a long-running process: leave it open and
+stop it with Ctrl+C.
 
 ## Layout
 
-    app/config.py        the only place environment settings are read
+    app/config.py        the declared settings contract, read nowhere else
     app/db/              bootstrap, checksummed migrations, test guard
-    app/domain/          context assembly, retrieval, decision rules
+    app/domain/          context, retrieval, decision rules, drafting,
+                         approval and content digests
     app/agent/           the four tools, model adapters, the runner
     app/ingestion/       provider-agnostic ingestion and correlation
-    app/reviewer/        read-only inspection view
+    app/dispatch/        send providers and the controlled dispatcher
+    app/reviewer/        the decision console
     app/integrations/    Gmail transport and the ingestion adapter
     db/migrations/       ordered, checksummed schema and seed data
-    docs/evidence/       recorded verification runs
+    docs/evidence/       recorded verification and real agent runs
     tests/               the suites named above
     scripts/             clean-slate proof, probes, operator tools
 

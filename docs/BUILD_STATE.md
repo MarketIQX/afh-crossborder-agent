@@ -352,3 +352,108 @@ the tree at some point and was removed for the stated reason.
   coverage gate requires.
 - Genuine participant for the one consented live case.
 - Entrant ownership decision, still PENDING in `PROVENANCE.md`.
+
+## 2026-09-11 EVENING: THE REPOSITORY'S OWN CLAIMS
+
+Counts elsewhere in this file are historical and correct for the commit
+they describe. Current state is below.
+
+**106 checks across seven suites.** ENV01-ENV08 are new.
+
+    tests/env_contract_smoke.py          ENV01-ENV08     no database
+    tests/db_integrity_smoke.py          DB01-DB10
+    tests/authority_boundary_smoke.py    AUTH01-AUTH21
+    tests/agent_slice_smoke.py           AGENT01-AGENT22
+    tests/ingestion_smoke.py             INGEST01-INGEST13
+    tests/reviewer_console_smoke.py      VIEW01-VIEW12
+    tests/approval_dispatch_smoke.py     APPROVE01-APPROVE20
+
+### What was wrong, and why nothing caught it
+
+Four documents drifted from the code independently, each maintained by
+hand. `.env.example` documented three Gmail keys the live `.env` no
+longer had, and omitted `POSTGRES_REVIEWER_PASSWORD` and all four AWS
+keys, two of which the identity gate requires. Since the README instructs
+a reader to copy `.env.example`, anyone following our own setup
+instructions reached a system that could not call Bedrock at all. The
+README also named a deleted test file, claimed check ranges that had
+moved, omitted the APPROVE suite entirely, used a bare `python` that
+fails outside the virtualenv, and stated that no model had ever been
+invoked, hours after a real Bedrock run was recorded.
+
+None of it was catchable by a test, so none of it was caught.
+
+### The fix is structural, not a correction
+
+`app/config.py` now declares the contract: every setting the software
+reads, its group, whether it is required, whether it is secret, and a
+placeholder. `.env.example` is generated from that declaration by
+`scripts/generate_env_example.py` and is never edited by hand.
+
+`tests/env_contract_smoke.py` turns each document's claims into
+assertions: the example matches the declaration, every setting any call
+site reads is declared or explicitly exempt, no real account id or usable
+secret appears in the public example, the test files the README names
+exist, the ranges it prints are true, and the README does not deny a real
+model run while evidence of one sits in `docs/evidence/`.
+
+That suite found two settings this work had itself missed,
+`GMAIL_TEST_RECIPIENT` and `GMAIL_SEND_SMOKE_APPROVED`.
+
+Five settings are deliberately outside the contract:
+`GMAIL_EXTERNAL_SEND_APPROVED`, `GMAIL_EXTERNAL_TEST_RECIPIENT`,
+`GMAIL_ROUNDTRIP_STATE_FILE`, `GMAIL_SEND_SMOKE_APPROVED` and
+`GMAIL_TEST_RECIPIENT`. Each gates a real outbound send, and each is read
+straight from the process environment so that authorising real mail is a
+deliberate act in a shell and can never be inherited from a copied file.
+
+### Gmail: proven, now reachable, still not wired
+
+OAuth was completed on 2026-09-10 with a recorded external round trip
+(`~/.marketiqx-hackathon/state/gmail_roundtrip.json`). The token carries
+`gmail.readonly` and `gmail.send`, belongs to the agent mailbox, and its
+refresh token still works. The three pointers are now in `.env`, so
+`config.require("GMAIL_TOKEN_FILE")` resolves where it previously exited.
+
+Two things remain, and neither is a credential problem.
+
+1. `app/reviewer/server.py` still constructs `SimulatedProvider()`.
+   Nothing builds a Gmail service for the dispatcher, so no message sent
+   through the workflow has ever left the building.
+2. `gmail_ingest._credentials()` refuses any credential where
+   `creds.valid` is false, with "Reauthorize deliberately rather than
+   silently." Access tokens expire hourly, so this fires routinely even
+   though the refresh token is healthy. Refreshing an access token is not
+   re-consent; no user interaction is involved. As written, this gate
+   made unattended ingestion impossible. **Changed**, after establishing
+   that the two things the gate conflated are not the same act.
+   Refreshing an access token is a machine-to-machine exchange involving
+   no person and no consent screen. Obtaining consent is a browser flow a
+   human completes. Only the second has to be deliberate.
+
+   Ingestion now refreshes an expired access token and continues. A
+   refused refresh, which is what withdrawn consent or an expired refresh
+   token actually looks like, still stops the run and names the command
+   to reauthorize by hand. The module cannot start a consent flow, and
+   `INGEST14` asserts that structurally by reading the source, so it
+   holds with no credentials and no network. The token file is still
+   written only by the deliberate auth flow.
+
+   Verified end to end afterwards: a dry-run ingest refreshed the stored
+   credential, passed the mailbox identity gate, and fetched 25 messages
+   from the real agent mailbox without writing anything.
+
+### Unattended operation is designed but not deployed
+
+There is no scheduler, poller or daemon anywhere in the tree. A case
+reaches the agent only through `scripts/run_case.py <case_id>`. The
+hackathon brief asks for an agent that "runs autonomously in the
+background and only surfaces when there's a real decision to make." The
+surfacing half is built and enforced; the running half is manual. The
+README now says so plainly under "What is not built" rather than
+implying otherwise in its opening paragraph, which it previously did.
+
+### Correction to an earlier entry
+
+"Entrant ownership decision, still PENDING in `PROVENANCE.md`" under
+EXTERNAL DEPENDENCIES is stale. It was resolved in `f0a2d11`.

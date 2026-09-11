@@ -101,6 +101,9 @@ def secret_values():
         key = key.strip().upper()
         value = value.strip().strip("\"'")
 
+        if key.endswith(("_FILE", "_PATH")):
+            continue
+
         if not any(marker in key for marker in SECRET_KEY_MARKERS):
             continue
 
