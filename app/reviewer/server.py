@@ -1,576 +1,481 @@
-"""Read-only reviewer view.
+"""The reviewer console.
 
-A human needs to see exactly what the agent saw and exactly what it is
-proposing, with the provenance attached, before anyone builds approval
-or dispatch on top of it.
+One decision at a time. A reviewer opens this to answer a single
+question: should these exact words go to this client. So the page shows
+the client's message, what the agent concluded, the letter itself, and
+the two things the reviewer can do about it. Everything else is quiet.
 
-What is actually true: only GET is routed, every other method returns
-405, the implemented handlers perform reads only, and no approve or send
-control is rendered because neither capability exists in the system.
+Three powers live behind three routes, and they are not the same power:
 
-What is NOT true, and was previously claimed here: that the database
-prevents this process from writing. The connection uses the runtime
-role, which also performs ingestion writes, records proposed facts and
-writes proposal revisions. A write bug in a GET handler would not be
-stopped by the database. Making read-only a privilege rather than a
-property of the code needs a separate restricted identity, with both a
-permitted read and a denied write demonstrated. That does not exist yet,
-so keep this interface local and do not treat it as an access control.
+    /draft    composes the letter        runtime role
+    /decide   authorises or returns it   reviewer role
+    /send     carries it out             runtime role
 
-Deliberately built on the standard library. Adding a web framework now
-would mean regenerating the dependency lock immediately before pinning
-`strands-agents`, and the next real step is that pin. Swapping this for
-FastAPI later is mechanical; the queries are already separate.
+The database enforces that separation. The runtime role holds no insert
+privilege on approvals and the reviewer role holds none on dispatches,
+so the process that sends cannot authorise, and the account that
+authorises cannot send.
 
-Usage:
-
-    python -m app.reviewer.server            # serves on 127.0.0.1:8080
-    python -m app.reviewer.server --port 9000
+There is no authentication. The reviewer is chosen from a control in the
+header and the page says so plainly. Grants and role separation are
+real; nothing yet verifies that the person clicking is who they claim to
+be. That is the next boundary, not a solved one.
 """
 
 import html
-import json
 import sys
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from app.reviewer import queries
+from app.dispatch import dispatcher, providers
+from app.domain import approval as approval_domain
+from app.domain import drafting
+from app.reviewer import queries, style, workqueue
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 
-DECISION_LABELS = {
-    "MISSING_FACTS": "Needs client facts",
-    "MISSING_KNOWLEDGE": "Internal knowledge gap, needs a professional",
-    "SOURCE_CONFLICT": "Sources conflict, a professional must resolve",
-    "OUT_OF_SCOPE": "Out of scope, or could not be routed",
-    "SUPPORTED_WITHIN_POLICY": (
-        "Covered for review, not yet approved for the client"
-    ),
-    "SYSTEM_FAILURE": "System failure, draw no conclusion from this run",
+VERDICT = {
+    "MISSING_FACTS": "The client needs to tell us something first.",
+    "MISSING_KNOWLEDGE": "We hold no approved guidance on this yet.",
+    "SOURCE_CONFLICT": "Our sources disagree about this.",
+    "OUT_OF_SCOPE": "This sits outside what we advise on.",
+    "SUPPORTED_WITHIN_POLICY": "We can answer this from approved guidance.",
+    "SYSTEM_FAILURE": "A lookup failed. Draw no conclusion from this run.",
 }
 
-VERIFICATION_LABELS = {
-    "UNVERIFIED": "not verified",
-    "SOURCE_RECORDED": "locator recorded, source content not captured",
-    "SOURCE_VERIFIED": "source passage captured and checked",
-    "PROFESSIONALLY_VERIFIED": "signed off by a qualified professional",
+NEEDS = {
+    "draft": "needs a letter",
+    "decision": "needs your decision",
+    "send": "approved, not sent",
+    "sent": "sent",
+    "rejected": "returned",
 }
-
-STYLE = """
-:root { color-scheme: light; }
-body {
-  margin: 0; padding: 0 16px 48px;
-  font: 14px/1.55 -apple-system, Segoe UI, Roboto, sans-serif;
-  color: #17202a; background: #f7f8fa;
-}
-header {
-  margin: 0 -16px 20px; padding: 14px 16px;
-  background: #17202a; color: #fff;
-}
-header a { color: #9ecbff; }
-h1 { font-size: 18px; margin: 0 0 4px; }
-h2 { font-size: 15px; margin: 26px 0 8px; }
-.banner {
-  background: #fff4d6; border: 1px solid #e0c477;
-  padding: 8px 12px; border-radius: 4px; margin-bottom: 18px;
-}
-.wrap { max-width: 1000px; margin: 0 auto; }
-table { border-collapse: collapse; width: 100%; margin-bottom: 10px; }
-th, td {
-  text-align: left; padding: 6px 8px; border-bottom: 1px solid #e3e6ea;
-  vertical-align: top;
-}
-th { background: #eef1f4; font-weight: 600; }
-code, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
-.card {
-  background: #fff; border: 1px solid #e3e6ea; border-radius: 4px;
-  padding: 12px 14px; margin-bottom: 12px;
-}
-.tag {
-  display: inline-block; padding: 1px 6px; border-radius: 3px;
-  font-size: 11px; font-family: ui-monospace, Consolas, monospace;
-  background: #eef1f4; border: 1px solid #d5dae0;
-}
-.tag.warn { background: #fff4d6; border-color: #e0c477; }
-.tag.bad { background: #fde8e8; border-color: #e6a1a1; }
-.tag.ok { background: #e6f4ea; border-color: #9ccdae; }
-pre {
-  white-space: pre-wrap; margin: 6px 0 0; padding: 8px;
-  background: #f2f4f6; border-radius: 3px; font-size: 12px;
-}
-.muted { color: #5b6673; }
-"""
 
 
 def esc(value):
-    if value is None:
-        return '<span class="muted">not set</span>'
-
-    return html.escape(str(value))
+    return html.escape("" if value is None else str(value))
 
 
-def tag(text, kind=""):
-    classes = f"tag {kind}".strip()
-    return f'<span class="{classes}">{html.escape(str(text))}</span>'
+def page(title, body, reviewers, reviewer_id, flash=None):
+    options = "".join(
+        f'<option value="{esc(rid)}"'
+        f'{" selected" if rid == reviewer_id else ""}>{esc(name)}</option>'
+        for rid, name, _email, _qual, _verify in reviewers
+    ) or '<option value="">no reviewers</option>'
 
+    flash_html = ""
 
-def decision_tag(state):
-    if state is None:
-        return '<span class="muted">no proposal yet</span>'
+    if flash:
+        text, kind = flash
+        flash_html = f'<div class="flash {esc(kind)}">{esc(text)}</div>'
 
-    kind = {
-        "SUPPORTED_WITHIN_POLICY": "ok",
-        "SYSTEM_FAILURE": "bad",
-        "SOURCE_CONFLICT": "bad",
-    }.get(state, "warn")
-
-    label = DECISION_LABELS.get(state, state)
-
-    return f"{tag(state, kind)} {html.escape(label)}"
-
-
-def page(title, body):
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(title)}</title><style>{STYLE}</style></head>
-<body><header><div class="wrap">
-<h1>NRI professional agent, reviewer view</h1>
-<div class="mono"><a href="/">all cases</a></div>
-</div></header>
-<div class="wrap">
-<div class="banner">
-Inspection interface. Its handlers only read, and no approval, edit or
-send capability exists anywhere in the system yet. Read-only here is a
-property of this code, not a database privilege. Check the verification
-status shown against each source before relying on anything.
-</div>
+<title>{esc(title)}</title>{style.FONT_LINK}
+<style>{style.CSS}</style></head><body>
+<header class="bar">
+  <a class="home" href="/">Cross-border compliance</a>
+  <span class="unauth">No sign-in yet &mdash; the reviewer is selected, not verified</span>
+  <span class="spacer"></span>
+  <form method="get" action="">
+    <label for="reviewer">Acting as</label>
+    <select id="reviewer" name="reviewer" onchange="this.form.submit()">
+      {options}
+    </select>
+  </form>
+</header>
+{flash_html}
 {body}
-</div></body></html>"""
+</body></html>"""
 
 
-def render_index(conn):
-    rows = queries.case_list(conn)
+def render_empty(reviewers, reviewer_id):
+    body = """<main>
+  <p class="eyebrow">Nothing waiting</p>
+  <h1>No matter needs a decision.</h1>
+  <p class="sub">When the agent finishes reading an enquiry, it appears
+  here with the letter it proposes to send.</p>
+</main>"""
 
-    if rows:
-        cells = []
+    return page("Nothing waiting", body, reviewers, reviewer_id)
 
-        for case_id, reference, lifecycle, service, messages, decision, _ in rows:
-            cells.append(
-                "<tr>"
-                f'<td><a class="mono" href="/case/{esc(case_id)}">'
-                f"{esc(reference or case_id[:8])}</a></td>"
-                f"<td>{esc(service) if service else tag('untriaged', 'warn')}</td>"
-                f"<td>{esc(lifecycle)}</td>"
-                f"<td>{esc(messages)}</td>"
-                f"<td>{decision_tag(decision)}</td>"
-                "</tr>"
-            )
 
-        table = (
-            "<table><tr><th>reference</th><th>service</th>"
-            "<th>status</th><th>messages</th><th>latest decision</th></tr>"
-            + "".join(cells)
-            + "</table>"
-        )
-    else:
-        table = '<p class="muted">No cases yet.</p>'
-
-    quarantine = queries.quarantined_messages(conn)
-
-    if quarantine:
-        rows_html = "".join(
-            "<tr>"
-            f"<td>{esc(sender)}</td><td>{esc(subject)}</td>"
-            f"<td class='mono'>{esc(received)}</td>"
-            f"<td>{tag(status, 'bad')}</td>"
-            "</tr>"
-            for _mid, _pid, sender, subject, received, status in quarantine
-        )
-        quarantine_html = (
-            "<h2>Quarantined messages</h2>"
-            "<p class='muted'>Correlation could not safely choose a case. "
-            "A human must decide. Nothing is guessed.</p>"
-            "<table><tr><th>from</th><th>subject</th><th>received</th>"
-            "<th>state</th></tr>" + rows_html + "</table>"
-        )
-    else:
-        quarantine_html = ""
-
-    return page(
-        "Cases", f"<h2>Cases</h2>{table}{quarantine_html}"
+def _others_html(items, current_id):
+    rows = "".join(
+        f'<a href="/case/{esc(i["case_id"])}">'
+        f'<span class="ref">{esc(i["reference"])}</span>'
+        f'<span class="need">{esc(NEEDS.get(i["awaiting"], ""))}</span></a>'
+        for i in items
+        if i["case_id"] != current_id
     )
-
-
-def _render_facts(conn, case_id, service_id):
-    facts = queries.case_facts(conn, case_id)
-    required = queries.required_facts(conn, service_id)
-
-    confirmed = {f[0] for f in facts if f[2] == "CONFIRMED"}
-    material = [r[0] for r in required if r[1]]
-    missing = [p for p in material if p not in confirmed]
-
-    if facts:
-        rows = "".join(
-            "<tr>"
-            f"<td class='mono'>{esc(predicate)}</td>"
-            f"<td>{esc(value)}</td>"
-            f"<td>{tag(status, 'ok' if status == 'CONFIRMED' else 'warn')}</td>"
-            f"<td>{tag(origin)}</td>"
-            f"<td class='mono'>{esc(run_id)}</td>"
-            "</tr>"
-            for predicate, value, status, origin, run_id, _created in facts
-        )
-        facts_html = (
-            "<table><tr><th>predicate</th><th>value</th><th>status</th>"
-            "<th>origin</th><th>recorded by run</th></tr>"
-            + rows
-            + "</table>"
-        )
-    else:
-        facts_html = '<p class="muted">No facts recorded yet.</p>'
-
-    if missing:
-        hints = {r[0]: r[2] for r in required}
-        missing_html = (
-            "<p><strong>Material facts still unconfirmed:</strong></p>"
-            "<table><tr><th>predicate</th><th>what to ask</th></tr>"
-            + "".join(
-                f"<tr><td class='mono'>{esc(p)}</td>"
-                f"<td>{esc(hints.get(p))}</td></tr>"
-                for p in missing
-            )
-            + "</table>"
-        )
-    else:
-        missing_html = (
-            '<p class="muted">All material facts are confirmed.</p>'
-            if material
-            else ""
-        )
-
-    return f"<h2>Evidence on file</h2>{facts_html}{missing_html}"
-
-
-def _render_units(conn, cited_ids):
-    if not cited_ids:
-        return '<p class="muted">No sources cited.</p>'
-
-    resolved = queries.units_by_id(conn, cited_ids)
-    blocks = []
-
-    for unit_id in cited_ids:
-        row = resolved.get(unit_id)
-
-        if row is None:
-            blocks.append(
-                f'<div class="card">{tag("unresolved citation", "bad")} '
-                f'<span class="mono">{esc(unit_id)}</span><br>'
-                "This unit is not in the active release. It cannot be "
-                "shown, and the proposal should not be relied on until a "
-                "curator explains why.</div>"
-            )
-            continue
-
-        (
-            _uid,
-            unit_key,
-            topic,
-            statement,
-            locator,
-            source_version,
-            verification,
-            passage,
-            effective_from,
-            effective_to,
-            release_version,
-        ) = row
-
-        verification_kind = (
-            "ok" if verification == "PROFESSIONALLY_VERIFIED" else "warn"
-        )
-
-        blocks.append(
-            '<div class="card">'
-            f"<strong>{esc(unit_key)}</strong> {tag(topic)} "
-            f"{tag(verification, verification_kind)} "
-            f'<span class="muted">'
-            f"{esc(VERIFICATION_LABELS.get(verification, ''))}</span>"
-            f"<div>{esc(statement)}</div>"
-            f'<div class="mono muted">source: {esc(locator)}'
-            f"{' / ' + esc(source_version) if source_version else ''}"
-            f" &middot; release v{esc(release_version)}"
-            f" &middot; effective {esc(effective_from)}"
-            f" to {esc(effective_to) if effective_to else 'open'}</div>"
-            + (
-                f"<pre>{esc(passage)}</pre>"
-                if passage
-                else '<div class="muted">No source passage captured, so '
-                "this citation shows a locator only.</div>"
-            )
-            + "</div>"
-        )
-
-    return "".join(blocks)
-
-
-def _render_revisions(conn, case_id):
-    rows = queries.revisions(conn, case_id)
-
-    if not rows:
-        return (
-            "<h2>Proposal</h2>"
-            '<p class="muted">The agent has not proposed anything yet.</p>'
-        )
-
-    blocks = ["<h2>Proposal revisions</h2>"]
-
-    for index, row in enumerate(rows):
-        (
-            _rid,
-            proposal_id,
-            revision,
-            state,
-            summary,
-            payload,
-            cited,
-            missing,
-            release_id,
-            requires_verification,
-            run_id,
-            created_at,
-        ) = row
-
-        current = " (current)" if index == 0 else ""
-
-        verification_note = (
-            tag("professional sign-off required", "warn")
-            if requires_verification
-            else tag("no verification flag", "ok")
-        )
-
-        blocks.append(
-            '<div class="card">'
-            f"<strong>Revision {esc(revision)}{current}</strong> "
-            f"{decision_tag(state)} {verification_note}"
-            f"<p>{esc(summary)}</p>"
-            f'<div class="mono muted">'
-            f"proposal {esc(proposal_id)} &middot; run {esc(run_id)} "
-            f"&middot; release {esc(release_id)} &middot; {esc(created_at)}"
-            "</div>"
-            + (
-                "<div><strong>Missing facts named:</strong> "
-                f"<span class='mono'>{esc(', '.join(missing))}</span></div>"
-                if missing
-                else ""
-            )
-            + f"<pre>{esc(json.dumps(payload, indent=2, default=str))}</pre>"
-            "</div>"
-        )
-
-        if index == 0:
-            blocks.append("<h2>Sources the proposal relied on</h2>")
-            blocks.append(_render_units(conn, list(cited)))
-
-    return "".join(blocks)
-
-
-def _render_runs(conn, case_id):
-    rows = queries.runs(conn, case_id)
 
     if not rows:
         return ""
 
-    table_rows = "".join(
-        "<tr>"
-        f"<td class='mono'>{esc(run_id)}</td>"
-        f"<td>{tag(runner, 'warn' if runner == 'DETERMINISTIC_STUB' else 'ok')}</td>"
-        f"<td class='mono'>{esc(model_id)}</td>"
-        f"<td>{tag(state, 'ok' if state == 'SUCCEEDED' else 'bad')}</td>"
-        f"<td>{esc(latency)}</td><td>{esc(tools)}</td>"
-        f"<td>{esc(reason)}</td>"
-        "</tr>"
-        for (
-            run_id,
-            _operation,
-            runner,
-            model_id,
-            _prompt,
-            _release,
-            _started,
-            latency,
-            tools,
-            state,
-            reason,
-            _builder,
-        ) in rows
+    return f'<div class="others"><h2>Other matters</h2>{rows}</div>'
+
+
+def _provenance_html(revision, run, trace, draft):
+    facts = [("Decision", revision["decision_state"])]
+
+    if run:
+        facts += [
+            ("Run", run[0]),
+            ("Runner", run[2]),
+            ("Model", run[3]),
+        ]
+
+    if draft:
+        facts.append(("Content digest", draft["content_digest"]))
+
+        if draft["approved_digest"]:
+            facts.append(("Approved digest", draft["approved_digest"]))
+
+    rows = "".join(
+        f"<dt>{esc(k)}</dt><dd class='mono'>{esc(v)}</dd>" for k, v in facts
     )
 
-    newest_run = rows[0][0]
-    calls = queries.tool_calls(conn, newest_run)
-
-    calls_html = "".join(
-        "<tr>"
-        f"<td>{esc(sequence)}</td><td class='mono'>{esc(name)}</td>"
-        f"<td>{tag('REFUSED', 'bad') if error else tag('ok', 'ok')}</td>"
-        f"<td>{esc(error) if error else ''}</td>"
-        "</tr>"
-        for sequence, name, _args, _result, error in calls
+    trace_html = "".join(
+        f'<div class="{"refused" if err else ""}">'
+        f"{esc(seq)}. {esc(name)}"
+        f'{" &mdash; refused: " + esc(err) if err else ""}</div>'
+        for seq, name, _args, _res, err in trace
     )
 
-    return (
-        "<h2>Agent runs</h2>"
-        "<table><tr><th>run</th><th>runner</th><th>model</th>"
-        "<th>result</th><th>ms</th><th>tools</th><th>reason</th></tr>"
-        + table_rows
-        + "</table>"
-        + (
-            "<h2>Tool trace, newest run</h2>"
-            "<table><tr><th>#</th><th>tool</th><th>outcome</th>"
-            "<th>refusal reason</th></tr>" + calls_html + "</table>"
-            if calls_html
-            else ""
+    return f"""<details class="prov">
+  <summary>How this was produced</summary>
+  <dl class="facts">{rows}</dl>
+  <div class="trace">{trace_html}</div>
+</details>"""
+
+
+def _letter_html(draft):
+    return f"""<div class="letter">
+  <div class="env">
+    <div><b>To</b> {esc(draft["recipient"])}</div>
+    <div><b>Subject</b> {esc(draft["subject"])}</div>
+  </div>
+  <div class="text">{esc(draft["body_text"])}</div>
+</div>"""
+
+
+def _action_html(case_id, revision, draft, conn, reviewer_id):
+    state = revision["decision_state"]
+
+    if draft is None:
+        if state in drafting.INTERNAL_ONLY:
+            return f"""<section>
+  <h2>Nothing to send</h2>
+  <div class="held">{esc(drafting.INTERNAL_ONLY[state])}. This does not
+  go to the client; it needs a colleague.</div>
+</section>"""
+
+        return f"""<section>
+  <h2>Next</h2>
+  <p class="note">The agent has decided. No letter has been written yet.</p>
+  <div class="decide">
+    <form method="post" action="/case/{esc(case_id)}/draft">
+      <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+      <input type="hidden" name="revision_id" value="{esc(revision['revision_id'])}">
+      <button type="submit">Write the letter</button>
+    </form>
+  </div>
+</section>"""
+
+    letter = _letter_html(draft)
+    dispatch = workqueue.dispatch_for_approval(conn, draft["approval_id"])
+
+    if dispatch:
+        kind = {"SENT": "ok", "FAILED": "bad"}.get(dispatch["state"], "wait")
+        detail = (
+            f"Provider reference {dispatch['provider_message_id']}. "
+            "The provider accepted it, which is not proof of delivery."
+            if dispatch["state"] == "SENT"
+            else (dispatch["failure_reason"] or "")
         )
-    )
+
+        if dispatch["state"] == "SEND_UNKNOWN":
+            detail += " Delivery is undetermined, so this will not be retried."
+
+        return f"""<section>
+  <h2>Sent</h2>
+  {letter}
+  <div class="held {kind}" style="margin-top:16px">
+    <p class="state {kind}">{esc(dispatch["state"])}</p>{esc(detail)}
+  </div>
+</section>"""
+
+    if draft["decision"] == "REJECTED":
+        return f"""<section>
+  <h2>Returned</h2>
+  {letter}
+  <div class="held bad" style="margin-top:16px">Returned by
+  {esc(draft["decided_by"])}. {esc(draft["note"] or "")}</div>
+</section>"""
+
+    if draft["decision"] == "APPROVED":
+        return f"""<section>
+  <h2>Approved, not yet sent</h2>
+  {letter}
+  <div class="held ok" style="margin-top:16px">Approved by
+  {esc(draft["decided_by"])}. Approving and sending are separate powers:
+  this account can authorise a letter but cannot send one.</div>
+  <div class="decide">
+    <form method="post" action="/case/{esc(case_id)}/send">
+      <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+      <input type="hidden" name="approval_id" value="{esc(draft["approval_id"])}">
+      <button type="submit">Send it</button>
+    </form>
+  </div>
+</section>"""
+
+    return f"""<section>
+  <h2>Your decision</h2>
+  {letter}
+  <div class="decide">
+    <form method="post" action="/case/{esc(case_id)}/decide">
+      <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
+      <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
+      <input type="hidden" name="seen_digest" value="{esc(draft["content_digest"])}">
+      <input type="text" name="note" placeholder="Note, optional">
+      <button type="submit" name="decision" value="APPROVED">Approve this letter</button>
+      <button type="submit" name="decision" value="REJECTED" class="quiet">Return it</button>
+    </form>
+  </div>
+  <p class="note" style="margin-top:10px">Approving records these exact
+  words. If they change afterwards, the approval stops being valid.</p>
+</section>"""
 
 
-def render_case(conn, case_id):
+def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     header = queries.case_header(conn, case_id)
 
     if header is None:
         return None
 
-    (
-        resolved_id,
-        reference,
-        lifecycle,
-        service_id,
-        service_key,
-        service_name,
-        created_at,
-        _updated,
-    ) = header
+    reference = header[1] or case_id[:8]
+    revision = workqueue.latest_revision(conn, case_id)
+    messages = queries.case_messages(conn, case_id)
+    draft = workqueue.draft_for_case(conn, case_id)
+    runs = queries.runs(conn, case_id)
+    run = runs[0] if runs else None
+    trace = queries.tool_calls(conn, run[0]) if run else []
 
-    messages = queries.case_messages(conn, resolved_id)
+    if revision is None:
+        body = f"""<main>
+  <p class="eyebrow">Matter {esc(reference)}</p>
+  <h1>The agent has not looked at this yet.</h1>
+  <p class="sub">Its conclusion and the letter it proposes will appear
+  here once it runs.</p>
+  {_others_html(items, case_id)}
+</main>"""
+        return page(reference, body, reviewers, reviewer_id, flash)
+
+    enquiry_html = ""
 
     if messages:
-        first = messages[0]
-        enquiry = (
-            '<div class="card">'
-            f"<strong>{esc(first[1])}</strong><br>"
-            f'<span class="mono muted">from {esc(first[0])} '
-            f"received {esc(first[3])} &middot; correlated by "
-            f"{esc(first[5])}</span>"
-            f"<pre>{esc(first[2])}</pre></div>"
-        )
+        sender, subject, body_text, _received, _s, _m, _p = messages[0]
+        enquiry_html = f"""<section>
+  <h2>What the client wrote</h2>
+  <p class="from">{esc(sender)} &middot; {esc(subject)}</p>
+  <div class="quote">{esc(body_text)}</div>
+</section>"""
 
-        later = "".join(
-            '<div class="card">'
-            f"<strong>{esc(subject)}</strong><br>"
-            f'<span class="mono muted">from {esc(sender)} '
-            f"received {esc(received)} &middot; {esc(method)}</span>"
-            f"<pre>{esc(body)}</pre></div>"
-            for sender, subject, body, received, _status, method, _pid in (
-                messages[1:]
-            )
-        )
+    state = revision["decision_state"]
 
-        later_html = (
-            f"<h2>Later messages on this case</h2>{later}" if later else ""
-        )
-    else:
-        enquiry = '<p class="muted">No message is attached to this case.</p>'
-        later_html = ""
+    body = f"""<main>
+  <p class="eyebrow">Matter {esc(reference)}</p>
+  <h1>{esc(VERDICT.get(state, state))}</h1>
+  {enquiry_html}
+  <section>
+    <h2>What the agent found</h2>
+    <div class="finding">{esc(revision["summary"])}</div>
+  </section>
+  {_action_html(case_id, revision, draft, conn, reviewer_id)}
+  {_provenance_html(revision, run, trace, draft)}
+  {_others_html(items, case_id)}
+</main>"""
 
-    scope = (
-        f"{esc(service_key)} <span class='muted'>{esc(service_name)}</span>"
-        if service_key
-        else tag("untriaged, agent cannot act", "warn")
-    )
-
-    body = (
-        f"<h2>Case {esc(reference or resolved_id)}</h2>"
-        '<div class="card mono">'
-        f"case {esc(resolved_id)}<br>service: {scope}<br>"
-        f"status: {esc(lifecycle)}<br>opened: {esc(created_at)}"
-        "</div>"
-        f"<h2>Original enquiry</h2>{enquiry}{later_html}"
-        + _render_facts(conn, resolved_id, service_id)
-        + _render_revisions(conn, resolved_id)
-        + _render_runs(conn, resolved_id)
-    )
-
-    return page(f"Case {reference or resolved_id}", body)
+    return page(reference, body, reviewers, reviewer_id, flash)
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ReviewerView/1.0"
+    server_version = "ReviewerConsole/2.0"
 
-    def _send(self, status, body, content_type="text/html; charset=utf-8"):
+    def _send(self, status, body, headers=None):
         payload = body.encode("utf-8")
 
         self.send_response(status)
-        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("X-Content-Type-Options", "nosniff")
+
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
+
         self.end_headers()
         self.wfile.write(payload)
 
+    def _redirect(self, location):
+        self.send_response(303)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _form(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length).decode("utf-8") if length else ""
+        parsed = urllib.parse.parse_qs(raw, keep_blank_values=True)
+
+        return {key: values[0] for key, values in parsed.items()}
+
+    @staticmethod
+    def _pick_reviewer(requested, reviewers):
+        ids = [row[0] for row in reviewers]
+
+        if requested in ids:
+            return requested
+
+        return ids[0] if ids else ""
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write(f"console {fmt % args}\n")
+
     def do_GET(self):  # noqa: N802
-        path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        path = parsed.path.rstrip("/") or "/"
 
         if path == "/health":
-            self._send(200, "ok", "text/plain; charset=utf-8")
+            self._send(200, "ok")
             return
 
+        flash = None
+
+        if params.get("msg"):
+            flash = (params["msg"][0], (params.get("kind") or ["ok"])[0])
+
         try:
-            with queries.connect() as conn:
+            with workqueue.app_connection() as conn:
+                people = workqueue.reviewers(conn)
+                reviewer_id = self._pick_reviewer(
+                    (params.get("reviewer") or [""])[0], people
+                )
+                items = workqueue.queue(conn)
+
                 if path == "/":
-                    self._send(200, render_index(conn))
+                    if not items:
+                        self._send(200, render_empty(people, reviewer_id))
+                        return
+
+                    self._redirect(
+                        f"/case/{items[0]['case_id']}?reviewer={reviewer_id}"
+                    )
                     return
 
                 if path.startswith("/case/"):
                     case_id = path[len("/case/") :]
-                    rendered = render_case(conn, case_id)
+                    rendered = render_case(
+                        conn, case_id, people, reviewer_id, items, flash
+                    )
 
                     if rendered is None:
                         self._send(
-                            404, page("Not found", "<p>No such case.</p>")
+                            404,
+                            page(
+                                "Not found",
+                                "<main><h1>No such matter.</h1></main>",
+                                people,
+                                reviewer_id,
+                            ),
                         )
                         return
 
                     self._send(200, rendered)
                     return
         except Exception as exc:  # noqa: BLE001
-            self._send(
-                500,
-                page(
-                    "Error",
-                    f"<p>Query failed: {esc(exc.__class__.__name__)}</p>",
-                ),
-            )
+            self._send(500, f"<p>Query failed: {esc(exc.__class__.__name__)}</p>")
             return
 
-        self._send(404, page("Not found", "<p>No such page.</p>"))
+        self._send(404, "<p>No such page.</p>")
 
-    def _reject(self):
-        """Anything that is not a read is refused.
+    def do_POST(self):  # noqa: N802
+        path = urllib.parse.urlparse(self.path).path.rstrip("/")
+        form = self._form()
+        reviewer_id = form.get("reviewer", "")
 
-        The view is read-only. Approval and dispatch belong to a later
-        milestone and must not be reachable from here by accident.
-        """
-        self.send_response(405)
-        self.send_header("Allow", "GET")
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+        if not path.startswith("/case/"):
+            self._send(404, "<p>No such page.</p>")
+            return
 
-    do_POST = _reject  # noqa: N815
-    do_PUT = _reject  # noqa: N815
-    do_PATCH = _reject  # noqa: N815
-    do_DELETE = _reject  # noqa: N815
+        case_id, _, action = path[len("/case/") :].partition("/")
 
-    def log_message(self, fmt, *args):
-        sys.stderr.write(f"reviewer {fmt % args}\n")
+        handler = {
+            "draft": self._do_draft,
+            "decide": self._do_decide,
+            "send": self._do_send,
+        }.get(action)
+
+        if handler is None:
+            self._send(405, "<p>Not an action.</p>", {"Allow": "GET, POST"})
+            return
+
+        message, kind = handler(form)
+
+        query = urllib.parse.urlencode(
+            {"reviewer": reviewer_id, "msg": message, "kind": kind}
+        )
+        self._redirect(f"/case/{case_id}?{query}")
+
+    def _do_draft(self, form):
+        try:
+            with workqueue.app_connection() as conn:
+                drafting.compose(conn, form["revision_id"])
+        except (drafting.DraftingRefused, approval_domain.DraftRefused) as exc:
+            return (str(exc), "bad")
+
+        return ("Letter written. Read it before you decide.", "ok")
+
+    def _do_decide(self, form):
+        try:
+            with workqueue.reviewer_connection() as conn:
+                result = approval_domain.record_decision(
+                    conn,
+                    form["draft_id"],
+                    form["reviewer"],
+                    form.get("decision", "REJECTED"),
+                    form.get("seen_digest", ""),
+                    note=form.get("note") or None,
+                )
+        except approval_domain.ApprovalRefused as exc:
+            return (str(exc), "bad")
+
+        if result["decision"] == "APPROVED":
+            return ("Approved. Sending is a separate step.", "ok")
+
+        return ("Returned. Nothing will be sent.", "ok")
+
+    def _do_send(self, form):
+        provider = providers.SimulatedProvider()
+
+        try:
+            with workqueue.app_connection() as conn:
+                result = dispatcher.dispatch(
+                    conn, form["approval_id"], provider
+                )
+        except dispatcher.DispatchRefused as exc:
+            return (str(exc), "bad")
+
+        if result["state"] == providers.SENT:
+            return (
+                f"Handed to the provider, reference "
+                f"{result['provider_message_id']}.",
+                "ok",
+            )
+
+        return (f"Not sent: {result['state']}.", "bad")
 
 
 def make_server(port=DEFAULT_PORT):
@@ -578,15 +483,16 @@ def make_server(port=DEFAULT_PORT):
 
 
 def main(argv):
-    port = DEFAULT_PORT
-
-    if "--port" in argv:
-        port = int(argv[argv.index("--port") + 1])
+    port = (
+        int(argv[argv.index("--port") + 1])
+        if "--port" in argv
+        else DEFAULT_PORT
+    )
 
     httpd = make_server(port)
     host, bound = httpd.server_address[:2]
 
-    print(f"Reviewer view on http://{host}:{bound}/  (read-only, GET only)")
+    print(f"Reviewer console on http://{host}:{bound}/")
 
     try:
         httpd.serve_forever()

@@ -1,22 +1,23 @@
 {
-  "recorded_at": "2026-09-11T08:56:53.370132+00:00",
-  "duration_seconds": 14.5,
+  "recorded_at": "2026-09-11T09:24:25.240089+00:00",
+  "duration_seconds": 23.6,
   "verdict": "PASS",
   "exit_code": 0,
   "git": {
-    "head": "f0a2d1157d2f326c7a70e24afe78ebe25fe730d4",
+    "head": "cfe1fbcbbd32f6128d6af4b35034a222b4e241c4",
     "branch": "main",
     "dirty": true,
     "dirty_files": [
-      "M app/agent/runner.py",
-      " M app/agent/tools.py",
-      " M docs/BUILD_STATE.md",
-      " D docs/evidence/evidence-20260911T080430Z-sources.json",
-      " D docs/evidence/evidence-20260911T080430Z.json",
-      "?? docs/evidence/bedrock-probe-20260911T084935Z.json",
-      "?? docs/evidence/real-run-20260911T085023Z.json",
-      "?? docs/evidence/real-run-20260911T085527Z.json",
-      "?? scripts/seed_demo_case.py"
+      "M app/reviewer/server.py",
+      " D docs/evidence/evidence-20260911T085653Z-sources.json",
+      " D docs/evidence/evidence-20260911T085653Z.json",
+      " D tests/reviewer_view_smoke.py",
+      " M tests/run_all.py",
+      "?? app/domain/drafting.py",
+      "?? app/reviewer/style.py",
+      "?? app/reviewer/workqueue.py",
+      "?? scripts/register_reviewer.py",
+      "?? tests/reviewer_console_smoke.py"
     ]
   },
   "python": "3.12.10",
@@ -36,7 +37,7 @@
     "note": "no credentials recorded"
   },
   "checks": {
-    "individual_passed": 95,
+    "individual_passed": 97,
     "individual_failed": 0,
     "identifiers": [
       "DB01 VALID RUNTIME INSERT",
@@ -104,16 +105,18 @@
       "INGEST12 SUBJECT REFERENCE FROM A STRANGER IS QUARANTINED",
       "INGEST13 REPLY HEADER FROM A STRANGER IS QUARANTINED",
       "INGEST11 INGESTED CASE REACHES THE AGENT ONLY AFTER TRIAGE",
-      "VIEW01 INDEX LISTS THE CASE",
-      "VIEW02 CASE PAGE SHOWS THE ORIGINAL ENQUIRY",
-      "VIEW03 CASE PAGE SHOWS RUN PROVENANCE",
-      "VIEW04 CASE PAGE SHOWS SOURCE PROVENANCE",
-      "VIEW05 CASE PAGE NAMES THE MISSING FACTS",
-      "VIEW06 SUPPORTED STATE IS LABELLED HONESTLY",
-      "VIEW07 EVERY WRITE METHOD IS REFUSED",
-      "VIEW08 UNKNOWN CASE IS NOT FOUND",
-      "VIEW09 QUARANTINED MESSAGE IS VISIBLE TO A REVIEWER",
-      "VIEW10 NO WRITE CONTROLS ARE RENDERED",
+      "VIEW01 THE PAGE LEADS WITH THE DECISION",
+      "VIEW02 THE CLIENT'S OWN WORDS ARE SHOWN",
+      "VIEW03 THE PAGE STATES THERE IS NO SIGN-IN",
+      "VIEW04 THE CONSOLE MAKES NO EXTERNAL REQUESTS",
+      "VIEW05 AN INTERNAL DECISION OFFERS NO LETTER TO THE CLIENT",
+      "VIEW06 DRAFTING PRODUCES A LETTER ON THE PAGE",
+      "VIEW07 A STALE RENDER CANNOT BE APPROVED THROUGH THE FORM",
+      "VIEW08 AN UNGRANTED REVIEWER CANNOT APPROVE THROUGH THE FORM",
+      "VIEW09 APPROVING DOES NOT SEND, AND THE PAGE SAYS SO",
+      "VIEW10 SENDING REPORTS PROVIDER ACCEPTANCE, NOT DELIVERY",
+      "VIEW11 A SECOND SEND THROUGH THE FORM IS REFUSED",
+      "VIEW12 UNKNOWN MATTER IS 404 AND UNKNOWN ACTION IS 405",
       "APPROVE01 THE RUNTIME ROLE CANNOT APPROVE",
       "APPROVE02 THE REVIEWER ROLE CANNOT DISPATCH",
       "APPROVE03 THE REVIEWER ROLE CANNOT WRITE A DRAFT",
@@ -138,5 +141,5 @@
     "failed_identifiers": [],
     "note": "runner steps are not independent tests; the counts above are individual check identifiers"
   },
-  "source_files": 73
+  "source_files": 78
 }
