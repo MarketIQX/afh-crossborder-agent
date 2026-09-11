@@ -16,7 +16,12 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
-ALLOWED_TEST_RECIPIENT = "aks@marketiqx.com"
+# The single address an outbound test may reach, supplied by the
+# environment. Unset means no recipient is allowed, so the guard
+# fails closed rather than shipping a real address in source.
+ALLOWED_TEST_RECIPIENT = os.environ.get(
+    "GMAIL_TEST_RECIPIENT", ""
+).strip()
 
 
 def require_env(name: str) -> str:
@@ -39,7 +44,7 @@ def main() -> int:
             "Set GMAIL_EXTERNAL_SEND_APPROVED=YES explicitly."
         )
 
-    if recipient != ALLOWED_TEST_RECIPIENT:
+    if not ALLOWED_TEST_RECIPIENT or recipient != ALLOWED_TEST_RECIPIENT:
         raise RuntimeError(
             f"Recipient not allowed for this controlled test: {recipient}"
         )
