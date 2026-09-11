@@ -78,6 +78,7 @@ class SimulatedApprovedService:
 
         self.service_id = f"9a000000-0000-0000-0000-{slot:012d}"
         self.release_id = f"9a100000-0000-0000-0000-{slot:012d}"
+        self.verifier_id = f"9a300000-0000-0000-0000-{slot:012d}"
 
         self.units = (
             (
@@ -149,6 +150,19 @@ class SimulatedApprovedService:
             ),
         )
 
+        # A unit claiming professional verification must name the
+        # professional. Inside a fixture that means creating one, not
+        # leaving the strongest claim in the system unattributed.
+        cur.execute(
+            "INSERT INTO app.reviewers (id, display_name, email) "
+            "VALUES (%s, %s, %s) ON CONFLICT (id) DO NOTHING",
+            (
+                self.verifier_id,
+                "Fixture Verifier",
+                f"verifier-{self.slot}@example.test",
+            ),
+        )
+
         for unit_id, unit_key, topic, statement, locator in self.units:
             passage = self.passage_for(unit_key)
 
@@ -157,10 +171,11 @@ class SimulatedApprovedService:
                 INSERT INTO app.knowledge_units (
                     id, release_id, unit_key, topic, statement,
                     source_locator, verification_status, effective_from,
-                    captured_passage, passage_digest, captured_at
+                    captured_passage, passage_digest, captured_at,
+                    verified_by, verified_at
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, 'PROFESSIONALLY_VERIFIED',
-                    DATE '2020-04-01', %s, %s, now()
+                    DATE '2020-04-01', %s, %s, now(), %s, now()
                 )
                 """,
                 (
@@ -172,6 +187,7 @@ class SimulatedApprovedService:
                     locator,
                     passage,
                     digest_of(passage),
+                    self.verifier_id,
                 ),
             )
 
@@ -186,6 +202,10 @@ class SimulatedApprovedService:
         cur.execute(
             "DELETE FROM app.knowledge_releases WHERE id = %s",
             (self.release_id,),
+        )
+        cur.execute(
+            "DELETE FROM app.reviewers WHERE id = %s",
+            (self.verifier_id,),
         )
         cur.execute(
             "DELETE FROM app.topic_keywords WHERE service_id = %s",
