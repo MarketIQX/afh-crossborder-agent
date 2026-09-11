@@ -1,0 +1,77 @@
+{
+  "started_at": "2026-09-11T08:50:23.084137+00:00",
+  "case_id": "fec5f82b-a3d5-47ac-949e-cda4c500f91b",
+  "model": {
+    "runner": "BEDROCK_STRANDS",
+    "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "region": "us-east-1",
+    "temperature": 0.2,
+    "max_tokens": 2048,
+    "streaming": false,
+    "prompt_version": "nri-proposal-prompt-v2",
+    "prompt_digest": "94dbebcce5ca3e4e0869ab7e354317ab6b443eef6a34ed5df1ecef197efefdd7"
+  },
+  "outcome": {
+    "ran": true,
+    "run_id": "3ca16f9f-7d5f-4ce9-8e7e-941f639a41c6",
+    "operation_id": "run-79d09ead-9f6a-4247-bf5a-9ecbf8f54b2e",
+    "runner": "BEDROCK_STRANDS",
+    "model_id": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "result_state": "SUCCEEDED",
+    "decision_state": "MISSING_FACTS",
+    "proposal_id": "6a8aa041-9ffe-44ed-919c-283b8b4fdfd0",
+    "revision": 1,
+    "knowledge_release_id": "20000000-0000-0000-0000-000000000001",
+    "latency_ms": 29140,
+    "failure_reason": null,
+    "permitted_states": [
+      "MISSING_FACTS",
+      "MISSING_KNOWLEDGE"
+    ],
+    "tool_calls": [
+      {
+        "sequence": 1,
+        "tool": "get_case_context",
+        "refused": false,
+        "error": null
+      },
+      {
+        "sequence": 3,
+        "tool": "get_service_knowledge",
+        "refused": true,
+        "error": "service_id does not match the scope bound to this run. Refusing to retrieve knowledge for another service."
+      },
+      {
+        "sequence": 3,
+        "tool": "get_service_knowledge",
+        "refused": true,
+        "error": "service_id does not match the scope bound to this run. Refusing to retrieve knowledge for another service."
+      },
+      {
+        "sequence": 5,
+        "tool": "get_service_knowledge",
+        "refused": false,
+        "error": null
+      },
+      {
+        "sequence": 5,
+        "tool": "get_service_knowledge",
+        "refused": false,
+        "error": null
+      },
+      {
+        "sequence": 6,
+        "tool": "record_proposed_facts",
+        "refused": false,
+        "error": null
+      },
+      {
+        "sequence": 7,
+        "tool": "propose_next_action",
+        "refused": false,
+        "error": null
+      }
+    ]
+  },
+  "reviewer_view": "/case/fec5f82b-a3d5-47ac-949e-cda4c500f91b"
+}

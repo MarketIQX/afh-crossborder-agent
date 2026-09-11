@@ -20,6 +20,7 @@ Every call, including a refused one, is appended to the tool trace.
 """
 
 import json
+import threading
 import uuid
 from dataclasses import dataclass
 
@@ -65,10 +66,16 @@ class ToolTrace:
         self._conn = conn
         self._run_id = run_id
         self._sequence = 0
+        self._lock = threading.Lock()
         self.calls = []
 
     def record(self, tool_name, arguments, result_summary=None, error=None):
-        self._sequence += 1
+        # Strands runs tools concurrently. Take the number once, under a
+        # lock, and use that value everywhere: re-reading the counter
+        # lets another thread's increment be observed instead.
+        with self._lock:
+            self._sequence += 1
+            sequence = self._sequence
 
         with self._conn.cursor() as cur:
             cur.execute(
@@ -81,7 +88,7 @@ class ToolTrace:
                 (
                     str(uuid.uuid4()),
                     self._run_id,
-                    self._sequence,
+                    sequence,
                     tool_name,
                     json.dumps(arguments, default=str),
                     (
@@ -93,18 +100,25 @@ class ToolTrace:
                 ),
             )
 
-        self.calls.append(
-            {
-                "sequence": self._sequence,
-                "tool_name": tool_name,
-                "arguments": arguments,
-                "error": error,
-            }
-        )
+        with self._lock:
+            self.calls.append(
+                {
+                    "sequence": sequence,
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                    "error": error,
+                }
+            )
 
     @property
     def count(self):
-        return self._sequence
+        with self._lock:
+            return self._sequence
+
+    def ordered_calls(self):
+        """The trace in execution order, whatever order it completed in."""
+        with self._lock:
+            return sorted(self.calls, key=lambda call: call["sequence"])
 
 
 class AgentTools:

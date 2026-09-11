@@ -33,16 +33,26 @@ that contains it.
 
 ## CURRENT ACCEPTED MILESTONE
 
-    M0 COMPLETE AS REPORTED
-    M1 PARTIAL
+    M0 COMPLETE
+    M1 COMPLETE
+    M2 PARTIAL
 
-    M1 COMPLETE WHEN:
-    A real Strands agent backed by a real Bedrock invocation uses the
-    bounded tools against persisted state and produces a persisted
-    source-linked proposal.
+M1 closed on 2026-09-11. A real Strands agent on real Bedrock
+read a persisted case through the four bounded tools and produced a
+persisted source-linked proposal.
 
-Every run recorded so far is stamped `DETERMINISTIC_STUB`. No model has
-been invoked.
+    runner          BEDROCK_STRANDS
+    model_id        us.anthropic.claude-sonnet-4-5-20250929-v1:0
+    region          us-east-1
+    result_state    SUCCEEDED
+    decision_state  MISSING_FACTS
+    run_id          4c82b6fb-1a9b-4a59-ac45-a1a2de7171db
+    tool calls      7, of which 2 were refused
+
+**Caveat that travels with this result.** The run executed in the
+workshop account `591893241838`, which expires. It proves the code
+path, not the submission account. Moving to the project account is
+three values in `.env`.
 
 ## EVIDENCE SNAPSHOT
 
@@ -202,6 +212,31 @@ This is risk reduction, not physical isolation, and it is not
 permission to erase arbitrary state. The normal route remains
 `scripts/verify_clean_slate.py`, which builds and destroys its own
 instance. The primary stays unmarked.
+
+## WHAT THE FIRST REAL MODEL RUN REVEALED
+
+Two things no stub could have produced.
+
+**The model reached outside its scope, and the boundary held.** At
+sequence 2 and 3 of both recorded runs, Claude Sonnet 4.5 called
+`get_service_knowledge` with a `service_id` of its own choosing. The
+server refused both, recorded the attempts with their reason, and the
+model then called the tool correctly and finished the work. Every scope
+test before this used a deliberately hostile stub written to attempt the
+violation. This was a frontier model reasoning normally about a real
+case, and it is reproducible: it happened on two different cases.
+
+**The trace had a concurrency bug the database was masking.** The first
+run's evidence file recorded sequences 1,3,3,5,5,6,7 while the database
+held 1..7. Strands executes tools concurrently, and `ToolTrace.record`
+incremented a shared counter then read it again, so two threads could
+observe the same later value. The database was correct because its
+unique constraint would have rejected a collision; the in-memory list,
+which is what the evidence file is built from, was not. The artefact we
+would have shown someone was wrong while the authoritative store was
+fine, which is the more dangerous way round. Fixed by taking the
+sequence once under a lock, and confirmed on a second live run where the
+evidence file and the database agree exactly.
 
 ## M2: APPROVAL AND DISPATCH
 

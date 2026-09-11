@@ -1,17 +1,22 @@
 {
-  "recorded_at": "2026-09-11T08:04:30.449162+00:00",
-  "duration_seconds": 18.3,
+  "recorded_at": "2026-09-11T08:56:53.370132+00:00",
+  "duration_seconds": 14.5,
   "verdict": "PASS",
   "exit_code": 0,
   "git": {
-    "head": "be8895adfee9f7262fa9c5c9c809f7b02920e17b",
+    "head": "f0a2d1157d2f326c7a70e24afe78ebe25fe730d4",
     "branch": "main",
     "dirty": true,
     "dirty_files": [
-      "M app/domain/approval.py",
-      " D docs/evidence/evidence-20260911T063717Z-sources.json",
-      " D docs/evidence/evidence-20260911T063717Z.json",
-      " M tests/approval_dispatch_smoke.py"
+      "M app/agent/runner.py",
+      " M app/agent/tools.py",
+      " M docs/BUILD_STATE.md",
+      " D docs/evidence/evidence-20260911T080430Z-sources.json",
+      " D docs/evidence/evidence-20260911T080430Z.json",
+      "?? docs/evidence/bedrock-probe-20260911T084935Z.json",
+      "?? docs/evidence/real-run-20260911T085023Z.json",
+      "?? docs/evidence/real-run-20260911T085527Z.json",
+      "?? scripts/seed_demo_case.py"
     ]
   },
   "python": "3.12.10",
@@ -133,5 +138,5 @@
     "failed_identifiers": [],
     "note": "runner steps are not independent tests; the counts above are individual check identifiers"
   },
-  "source_files": 69
+  "source_files": 73
 }

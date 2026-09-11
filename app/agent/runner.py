@@ -300,7 +300,7 @@ def execute(
             revision=proposal.revision if proposal else None,
             latency_ms=latency_ms,
             failure_reason=reason,
-            tool_calls=tuple(trace.calls),
+            tool_calls=tuple(trace.ordered_calls()),
             permitted_states=tuple(sorted(evaluation.permitted_states)),
             recommended_state=evaluation.recommended_state,
         )
