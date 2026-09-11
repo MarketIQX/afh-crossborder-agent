@@ -5,8 +5,32 @@ material only. A document cannot turn an unexecuted feature into a pass.
 
 ## CURRENT COMMIT
 
-`c4120c7` Add hardened PostgreSQL state foundation. Working tree dirty;
-no commit is authorised yet.
+`7cd9560` Add deterministic backend, ingestion, reviewer view and
+Bedrock adapter, on branch `checkpoint/deterministic-backend`. Working
+tree clean. 50 files, 10583 insertions.
+
+Committed on explicit authorisation. Made on a branch rather than on
+`main`, so the default branch is unchanged until someone decides to
+move it.
+
+**Verified from a clean checkout**, which is what makes the
+reproducibility claim true rather than asserted: the commit was cloned
+into an empty directory, a fresh virtualenv was built from
+`requirements-lock.txt` alone, and the full clean-slate verification was
+run from that clone. The clone carried no `.env` and no uncommitted
+files. All 75 checks passed and the disposable container was destroyed.
+
+    clone HEAD: 7cd9560
+    clone is dirty: 0 file(s)
+    clone has .env: no, correct
+    installed: 71 packages
+    ALL CHECKS: PASS
+
+Note on the evidence manifest: `evidence-20260911T042219Z` was recorded
+immediately before the commit, so its source digests match the committed
+code exactly, while its git fields describe the pre-commit working tree.
+It has not been re-recorded, because a manifest cannot record the commit
+that contains it.
 
 ## CURRENT ACCEPTED MILESTONE
 
