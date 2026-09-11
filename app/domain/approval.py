@@ -24,6 +24,8 @@ import uuid
 import psycopg
 from psycopg.types.json import Jsonb
 
+from app.ingestion.core import email_only
+
 APPROVAL_RULES_VERSION = "approval-rules-v1"
 
 
@@ -117,6 +119,20 @@ def create_draft(conn, proposal_revision_id, recipient, subject, body_text,
     try:
         with conn.transaction():
             with conn.cursor() as cur:
+                # A draft may only be addressed to someone who has
+                # actually written in on this case. Naming a recipient
+                # is not the same as that recipient having standing,
+                # and a reviewer's attention is not a control.
+                known = _case_correspondents(cur, proposal_revision_id)
+
+                if email_only(recipient) not in known:
+                    raise DraftRefused(
+                        f"{recipient} has never corresponded on this "
+                        f"case. Writing to a new address is an escalation "
+                        f"a human must arrange, not something a draft may "
+                        f"do quietly."
+                    )
+
                 cur.execute(
                     """
                     INSERT INTO app.draft_messages (
@@ -143,6 +159,39 @@ def create_draft(conn, proposal_revision_id, recipient, subject, body_text,
         raise DraftRefused(f"draft rejected: {exc.diag.constraint_name}") from exc
 
     return {"draft_id": draft_id, "content_digest": digest}
+
+
+def _case_correspondents(cur, proposal_revision_id):
+    """Addresses that have actually written in on this case."""
+    cur.execute(
+        """
+        SELECT DISTINCT m.sender_address
+        FROM app.inbound_messages m
+        JOIN app.action_proposals p ON p.case_id = m.case_id
+        JOIN app.proposal_revisions r ON r.proposal_id = p.id
+        WHERE r.id = %s
+        """,
+        (proposal_revision_id,),
+    )
+
+    return {email_only(row[0]) for row in cur.fetchall()}
+
+
+def _case_of_approval(cur, approval_id):
+    cur.execute(
+        """
+        SELECT p.case_id::text
+        FROM app.approvals a
+        JOIN app.draft_messages d ON d.id = a.draft_message_id
+        JOIN app.proposal_revisions r ON r.id = d.proposal_revision_id
+        JOIN app.action_proposals p ON p.id = r.proposal_id
+        WHERE a.id = %s
+        """,
+        (approval_id,),
+    )
+    row = cur.fetchone()
+
+    return row[0] if row else None
 
 
 def _active_reviewer(cur, reviewer_id):
@@ -244,13 +293,33 @@ def record_decision(conn, draft_id, reviewer_id, decision, seen_digest,
     }
 
 
-def revoke(conn, approval_id, reason):
-    """Withdraw an approval. Reviewer role."""
+def revoke(conn, approval_id, reviewer_id, reason):
+    """Withdraw an approval. Reviewer role, and only on a granted case."""
     if not reason or not reason.strip():
         raise ApprovalRefused("a revocation must state a reason")
 
     with conn.transaction():
         with conn.cursor() as cur:
+            case_id = _case_of_approval(cur, approval_id)
+
+            if case_id is None:
+                raise ApprovalRefused(
+                    f"approval {approval_id} does not exist"
+                )
+
+            reviewer = _active_reviewer(cur, reviewer_id)
+
+            if reviewer is None or not reviewer[1]:
+                raise ApprovalRefused(
+                    f"reviewer {reviewer_id} is absent or inactive"
+                )
+
+            if not _has_active_grant(cur, reviewer_id, case_id):
+                raise ApprovalRefused(
+                    f"reviewer {reviewer[0]} holds no active grant on "
+                    f"case {case_id}, so may not withdraw its approvals"
+                )
+
             cur.execute(
                 """
                 UPDATE app.approvals

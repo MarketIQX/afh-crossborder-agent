@@ -40,6 +40,9 @@ REVISION_ID = "9b300000-0000-0000-0000-000000000001"
 SECOND_REVISION_ID = "9b300000-0000-0000-0000-000000000002"
 THIRD_REVISION_ID = "9b300000-0000-0000-0000-000000000003"
 
+MAILBOX_ID = "9b500000-0000-0000-0000-000000000001"
+INBOUND_ID = "9b600000-0000-0000-0000-000000000001"
+
 GRANTED_REVIEWER = "9b400000-0000-0000-0000-000000000001"
 UNGRANTED_REVIEWER = "9b400000-0000-0000-0000-000000000002"
 INACTIVE_REVIEWER = "9b400000-0000-0000-0000-000000000003"
@@ -100,6 +103,14 @@ def cleanup():
                 ([CASE_ID, OTHER_CASE_ID],),
             )
             cur.execute(
+                "DELETE FROM app.inbound_messages WHERE mailbox_id = %s",
+                (MAILBOX_ID,),
+            )
+            cur.execute(
+                "DELETE FROM app.mailboxes WHERE id = %s",
+                (MAILBOX_ID,),
+            )
+            cur.execute(
                 "DELETE FROM app.reviewer_case_grants WHERE case_id = ANY(%s)",
                 ([CASE_ID, OTHER_CASE_ID],),
             )
@@ -142,6 +153,12 @@ def seed():
 
     with admin_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO app.mailboxes (id, provider, address) "
+                "VALUES (%s, 'gmail', 'firm@example.test')",
+                (MAILBOX_ID,),
+            )
+
             for case_id, reference in (
                 (CASE_ID, "APPROVE-FIXTURE-001"),
                 (OTHER_CASE_ID, "APPROVE-FIXTURE-002"),
@@ -151,6 +168,24 @@ def seed():
                     "VALUES (%s, %s, %s)",
                     (case_id, SERVICE_ID, reference),
                 )
+
+            cur.execute(
+                """
+                INSERT INTO app.inbound_messages (
+                    id, mailbox_id, provider_message_id,
+                    sender_address, recipient_addresses, subject,
+                    body_text, received_at, case_id,
+                    correlation_status, correlation_method
+                ) VALUES (
+                    %s, %s, 'approve-fixture-msg', %s,
+                    '["firm@example.test"]', 'Residency question',
+                    'I moved abroad last year.',
+                    '2026-06-01 09:00:00+00', %s,
+                    'MATCHED', 'NEW_CASE'
+                )
+                """,
+                (INBOUND_ID, MAILBOX_ID, RECIPIENT, CASE_ID),
+            )
 
             cur.execute(
                 """
@@ -472,7 +507,10 @@ def approve10_changed_recipient_is_refused():
 def approve11_revoked_approval_is_refused():
     with reviewer_conn() as conn:
         approval_domain.revoke(
-            conn, STATE["approval_id"], "withdrawn for testing"
+            conn,
+            STATE["approval_id"],
+            GRANTED_REVIEWER,
+            "withdrawn for testing",
         )
 
     provider = providers.SimulatedProvider()
@@ -660,7 +698,10 @@ def approve17_definite_failure_permits_retry():
     # again, so the retry is exercised on a draft that already exists.
     with reviewer_conn() as conn:
         approval_domain.revoke(
-            conn, STATE["approval_id"], "re-testing retry behaviour"
+            conn,
+            STATE["approval_id"],
+            GRANTED_REVIEWER,
+            "re-testing retry behaviour",
         )
         reapproved = approval_domain.record_decision(
             conn,
@@ -732,6 +773,45 @@ def approve18_agent_has_no_send_or_approve_tool():
     )
 
 
+def approve19_draft_to_a_stranger_is_refused():
+    """A recipient with no standing on the case cannot be drafted to."""
+
+    def action():
+        with app_conn() as conn:
+            approval_domain.create_draft(
+                conn,
+                THIRD_REVISION_ID,
+                "attacker@elsewhere.test",
+                "Your case documents",
+                "Please find everything attached.",
+            )
+
+    expect_refusal(
+        "APPROVE19 A DRAFT TO A NON-CORRESPONDENT IS REFUSED",
+        approval_domain.DraftRefused,
+        action,
+    )
+
+
+def approve20_revoking_without_a_grant_is_refused():
+    """Withdrawing an approval is authority over the case."""
+
+    def action():
+        with reviewer_conn() as conn:
+            approval_domain.revoke(
+                conn,
+                STATE["approval_id"],
+                UNGRANTED_REVIEWER,
+                "not my case",
+            )
+
+    expect_refusal(
+        "APPROVE20 REVOKING WITHOUT A GRANT ON THE CASE IS REFUSED",
+        approval_domain.ApprovalRefused,
+        action,
+    )
+
+
 CHECKS = (
     approve01_runtime_cannot_approve,
     approve02_reviewer_cannot_dispatch,
@@ -751,6 +831,8 @@ CHECKS = (
     approve16_send_unknown_blocks_retry,
     approve17_definite_failure_permits_retry,
     approve18_agent_has_no_send_or_approve_tool,
+    approve19_draft_to_a_stranger_is_refused,
+    approve20_revoking_without_a_grant_is_refused,
 )
 
 

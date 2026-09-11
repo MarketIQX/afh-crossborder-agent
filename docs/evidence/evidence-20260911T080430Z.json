@@ -1,20 +1,17 @@
 {
-  "recorded_at": "2026-09-11T06:37:17.970985+00:00",
-  "duration_seconds": 15.9,
+  "recorded_at": "2026-09-11T08:04:30.449162+00:00",
+  "duration_seconds": 18.3,
   "verdict": "PASS",
   "exit_code": 0,
   "git": {
-    "head": "12d9751131aea8a8615e6083db4ca6bc45ea8893",
+    "head": "be8895adfee9f7262fa9c5c9c809f7b02920e17b",
     "branch": "main",
     "dirty": true,
     "dirty_files": [
-      "D docs/evidence/evidence-20260911T042219Z-sources.json",
-      " D docs/evidence/evidence-20260911T042219Z.json",
-      " M scripts/record_evidence.py",
-      " M tests/run_all.py",
-      "?? app/dispatch/",
-      "?? app/domain/approval.py",
-      "?? tests/approval_dispatch_smoke.py"
+      "M app/domain/approval.py",
+      " D docs/evidence/evidence-20260911T063717Z-sources.json",
+      " D docs/evidence/evidence-20260911T063717Z.json",
+      " M tests/approval_dispatch_smoke.py"
     ]
   },
   "python": "3.12.10",
@@ -34,7 +31,7 @@
     "note": "no credentials recorded"
   },
   "checks": {
-    "individual_passed": 93,
+    "individual_passed": 95,
     "individual_failed": 0,
     "identifiers": [
       "DB01 VALID RUNTIME INSERT",
@@ -129,7 +126,9 @@
       "APPROVE15 A REPLAYED OPERATION ID IS REFUSED",
       "APPROVE16 AN UNDETERMINED SEND BLOCKS A RETRY",
       "APPROVE17 A DEFINITE FAILURE PERMITS ONE RETRY",
-      "APPROVE18 THE AGENT HAS NO SEND OR APPROVE CAPABILITY"
+      "APPROVE18 THE AGENT HAS NO SEND OR APPROVE CAPABILITY",
+      "APPROVE19 A DRAFT TO A NON-CORRESPONDENT IS REFUSED",
+      "APPROVE20 REVOKING WITHOUT A GRANT ON THE CASE IS REFUSED"
     ],
     "failed_identifiers": [],
     "note": "runner steps are not independent tests; the counts above are individual check identifiers"
