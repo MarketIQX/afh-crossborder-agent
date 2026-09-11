@@ -205,13 +205,14 @@ def evaluate(context, units, conflicts, failure_reason=None):
         state for state in PRECEDENCE if state in permitted
     )
 
-    requires_verification = (
-        not units or any(not unit.professionally_verified for unit in units)
-    )
+    # What an answer may rest on, not what the search returned. A pool
+    # containing unverified candidates alongside verified ones is normal
+    # once retrieval is wider than an exact topic match.
+    requires_verification = not approved
 
     if requires_verification:
         rationale.append(
-            "cited knowledge is not professionally verified, so any "
+            "no professionally verified guidance covers this, so any "
             "client-facing output requires professional sign-off"
         )
 

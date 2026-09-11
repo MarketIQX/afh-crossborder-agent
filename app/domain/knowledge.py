@@ -18,6 +18,8 @@ lookup broke" must never collapse into the same answer.
 from dataclasses import dataclass
 from datetime import date
 
+import re
+
 import psycopg
 
 RETRIEVAL_VERSION = "knowledge-retrieval-v1"
@@ -129,6 +131,134 @@ def retrieve(cur, release_id, topics, material_date):
         )
         for row in rows
     )
+
+
+TEXT_MATCH_LIMIT = 12
+
+# Below this rank a match is a coincidence of common words. With an OR
+# expression, one shared ordinary word scores far under this and a rule
+# genuinely described in other language scores above it.
+MIN_TEXT_RANK = 0.01
+
+# Enough terms to describe a rule, few enough that one rambling email
+# cannot turn the query into a scan of the whole corpus.
+MAX_QUERY_TERMS = 24
+
+# Words that would match almost any unit. The English dictionary already
+# strips true stopwords; these are domain-common terms that are not
+# stopwords and carry no discriminating signal here.
+_UNHELPFUL = frozenset(
+    {
+        "india", "indian", "tax", "taxed", "taxes", "taxable",
+        "year", "years", "please", "hello", "thanks", "regards",
+        "would", "could", "should", "anything", "something",
+        "really", "quite", "about", "there", "here", "still",
+        "help", "know", "think", "said", "told", "asked",
+    }
+)
+
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def search_expression(text):
+    """Reduce a client's prose to a safe OR expression, or return None.
+
+    Every term is forced to [a-z0-9]+ before it can reach to_tsquery, so
+    search syntax written into an email is treated as words rather than
+    as syntax.
+    """
+    seen = []
+
+    for token in _TOKEN.findall((text or "").lower()):
+        if len(token) < 4 or token in _UNHELPFUL or token in seen:
+            continue
+
+        seen.append(token)
+
+        if len(seen) >= MAX_QUERY_TERMS:
+            break
+
+    if not seen:
+        return None
+
+    return " | ".join(seen)
+
+
+def retrieve_by_query(cur, release_id, topics, query, material_date):
+    """Units for the given topics, plus units whose text answers the query.
+
+    Returns (units, matched_by) where matched_by maps unit_id to
+    'topic', 'text' or 'both', so a reviewer can see why each unit was
+    put in front of the model.
+
+    The scope arguments come first and are not negotiable: one release,
+    one effective-date window. Search happens inside that, never across
+    it.
+    """
+    by_id = {}
+    matched_by = {}
+
+    for unit in retrieve(cur, release_id, topics, material_date):
+        by_id[unit.unit_id] = unit
+        matched_by[unit.unit_id] = "topic"
+
+    expression = search_expression(query)
+
+    if expression is None:
+        return tuple(by_id.values()), matched_by
+
+    cur.execute(
+        """
+        SELECT
+            u.id::text,
+            u.unit_key,
+            u.topic,
+            u.statement,
+            u.source_locator,
+            u.verification_status,
+            u.effective_from,
+            u.effective_to,
+            u.scope_tags,
+            ts_rank(u.searchable, to_tsquery('english', %s))
+                AS rank
+        FROM app.active_knowledge_units u
+        WHERE u.release_id = %s
+          AND u.effective_from <= %s
+          AND (u.effective_to IS NULL OR u.effective_to >= %s)
+          AND u.searchable @@ to_tsquery('english', %s)
+        ORDER BY rank DESC, u.topic, u.unit_key
+        LIMIT %s
+        """,
+        (expression, release_id, material_date, material_date,
+         expression, TEXT_MATCH_LIMIT),
+    )
+
+    for row in cur.fetchall():
+        rank = row[9]
+
+        if rank is not None and rank < MIN_TEXT_RANK:
+            continue
+
+        unit_id = row[0]
+
+        if unit_id in by_id:
+            matched_by[unit_id] = "both"
+            continue
+
+        by_id[unit_id] = KnowledgeUnit(
+            unit_id=unit_id,
+            unit_key=row[1],
+            topic=row[2],
+            statement=row[3],
+            source_locator=row[4],
+            verification_status=row[5],
+            effective_from=row[6],
+            effective_to=row[7],
+            scope_tags=tuple(row[8] or ()),
+        )
+        matched_by[unit_id] = "text"
+
+    return tuple(by_id.values()), matched_by
 
 
 def declared_conflicts(cur, unit_ids):

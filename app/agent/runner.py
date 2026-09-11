@@ -160,10 +160,26 @@ def _gather_knowledge(conn, ctx):
 
     topics = ctx.in_scope_topics
 
+    # The client's own words, which is what the tool searches with. A
+    # server validating the model's conclusion must see at least the
+    # evidence the model could see.
+    enquiry_text = ""
+
+    if ctx.enquiry is not None:
+        enquiry_text = " ".join(
+            part
+            for part in (ctx.enquiry.subject, ctx.enquiry.body_text)
+            if part
+        )
+
     try:
         with conn.cursor() as cur:
-            units = knowledge.retrieve(
-                cur, ctx.knowledge_release_id, topics, ctx.material_date
+            units, _matched_by = knowledge.retrieve_by_query(
+                cur,
+                ctx.knowledge_release_id,
+                topics,
+                enquiry_text,
+                ctx.material_date,
             )
             conflicts = knowledge.declared_conflicts(
                 cur, [unit.unit_id for unit in units]

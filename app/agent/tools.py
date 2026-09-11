@@ -221,14 +221,26 @@ class AgentTools:
             }
 
         with self._conn.cursor() as cur:
-            units = knowledge.retrieve(
-                cur, release_id, topics, self._context.material_date
+            # Topic scope plus bounded text search over the same release.
+            # A client who describes a rule without naming it still
+            # reaches it; a client outside the service still cannot.
+            units, matched_by = knowledge.retrieve_by_query(
+                cur,
+                release_id,
+                topics,
+                str(query),
+                self._context.material_date,
             )
             conflicts = knowledge.declared_conflicts(
                 cur, [unit.unit_id for unit in units]
             )
 
         approved_units = knowledge.approved(units)
+
+        how_found = {}
+
+        for value in matched_by.values():
+            how_found[value] = how_found.get(value, 0) + 1
         gaps = knowledge.coverage_gaps(approved_units, topics)
         provisional = tuple(
             sorted(
@@ -245,6 +257,7 @@ class AgentTools:
             "knowledge_release_id": release_id,
             "retrieval_version": knowledge.RETRIEVAL_VERSION,
             "query_tokens": sorted(query_tokens),
+            "matched_by": how_found,
             "units": [
                 {
                     **unit.citation(),
