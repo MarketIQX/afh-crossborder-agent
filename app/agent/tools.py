@@ -253,6 +253,14 @@ class AgentTools:
             )
         )
 
+        # `units` holds only what an answer may rest on. Anything not
+        # professionally verified is reported separately, so it cannot
+        # be read as usable guidance by a model working through an
+        # array it was told to reason from.
+        unverified = [
+            unit for unit in units if not unit.professionally_verified
+        ]
+
         result = {
             "knowledge_release_id": release_id,
             "retrieval_version": knowledge.RETRIEVAL_VERSION,
@@ -263,11 +271,29 @@ class AgentTools:
                     **unit.citation(),
                     "statement": unit.statement,
                 }
-                for unit in units
+                for unit in approved_units
             ],
             "approved_unit_ids": [
                 unit.unit_id for unit in approved_units
             ],
+            "consulted_unverified": {
+                "note": (
+                    "These exist in the corpus and no professional has "
+                    "verified them. They may NOT be relied on, quoted, "
+                    "paraphrased or used to support any conclusion. They "
+                    "are shown so you can report accurately that a "
+                    "source exists on this subject and has not been "
+                    "signed off. Citing one is refused by the server."
+                ),
+                "count": len(unverified),
+                "units": [
+                    {
+                        **unit.citation(),
+                        "statement": unit.statement,
+                    }
+                    for unit in unverified
+                ],
+            },
             "coverage_gaps": list(gaps),
             "provisional_topics": list(provisional),
             "conflicts": list(conflicts),
@@ -277,8 +303,9 @@ class AgentTools:
             "get_service_knowledge",
             arguments,
             {
-                "units": len(units),
-                "unit_ids": [unit.unit_id for unit in units],
+                "units": len(approved_units),
+                "unit_ids": [unit.unit_id for unit in approved_units],
+                "consulted_unverified": len(unverified),
                 "coverage_gaps": result["coverage_gaps"],
             },
         )

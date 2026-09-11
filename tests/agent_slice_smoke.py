@@ -949,6 +949,111 @@ def agent26_steering_requires_retrieval_before_support():
     print("AGENT26 STEERING REQUIRES RETRIEVAL BEFORE SUPPORT: PASS")
 
 
+def agent27_unverified_guidance_is_never_usable():
+    """`units` may contain only verified guidance; the rest is quarantined.
+
+    Retrieval widened to text search, which legitimately brings
+    unverified units into the candidate pool. They used to arrive in the
+    same array the model reasons from, distinguishable only by a status
+    field. Relying on a model to notice a field is a convention; this is
+    the control.
+
+    The unverified ones must still be reported, because the honest
+    answer to an unanswerable question is often "a source exists and
+    nobody has signed it off", and the agent can only say that if it
+    knows.
+    """
+    stub = model_module.DeterministicStubModel()
+
+    result = runner.execute(
+        stub, CASE_SUPPORTED, operation_id="agent27-sandbox-probe"
+    )
+
+    if result.result_state not in ("SUCCEEDED", "REFUSED"):
+        raise RuntimeError(
+            f"AGENT27 FAIL: run state {result.result_state!r}"
+        )
+
+    with app_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT result_summary
+                FROM app.agent_tool_calls
+                WHERE run_id = %s
+                  AND tool_name = 'get_service_knowledge'
+                  AND error IS NULL
+                ORDER BY sequence
+                LIMIT 1
+                """,
+                (result.run_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        raise RuntimeError(
+            "AGENT27 FAIL: the run recorded no successful retrieval, so "
+            "the invariant was not exercised"
+        )
+
+    summary = row[0] or {}
+
+    # The trace records counts, which is what proves the split happened
+    # rather than that the code contains a split.
+    if "consulted_unverified" not in summary:
+        raise RuntimeError(
+            f"AGENT27 FAIL: retrieval did not record a sandbox count; "
+            f"summary keys {sorted(summary)}"
+        )
+
+    # And the authoritative half must be verified-only, asserted at the
+    # source rather than through the trace.
+    from app.domain import knowledge as knowledge_module
+
+    unit_ids = summary.get("unit_ids") or []
+
+    if unit_ids:
+        with app_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) FROM app.active_knowledge_units "
+                    "WHERE id = ANY(%s) "
+                    "AND verification_status <> 'PROFESSIONALLY_VERIFIED'",
+                    (unit_ids,),
+                )
+                unverified_in_units = cur.fetchone()[0]
+
+        if unverified_in_units:
+            raise RuntimeError(
+                f"AGENT27 FAIL: {unverified_in_units} unverified unit(s) "
+                f"were handed over as usable guidance"
+            )
+
+    # The split must be visible in the tool's own contract, so a future
+    # edit that merges the arrays fails here rather than silently.
+    import inspect
+
+    source = inspect.getsource(tools_module.AgentTools.get_service_knowledge)
+
+    if "consulted_unverified" not in source:
+        raise RuntimeError(
+            "AGENT27 FAIL: the tool no longer separates unverified "
+            "material from usable guidance"
+        )
+
+    if "for unit in approved_units" not in source:
+        raise RuntimeError(
+            "AGENT27 FAIL: `units` is no longer built from approved "
+            "units only"
+        )
+
+    print(
+        "AGENT27 UNVERIFIED GUIDANCE IS NEVER USABLE: PASS "
+        f"({len(unit_ids)} verified handed over, "
+        f"{summary.get('consulted_unverified')} quarantined)"
+    )
+
+
 def agent19_strands_registers_only_intended_tools():
     """Prove the tool surface at SDK registration, not just on our object.
 
@@ -1234,6 +1339,7 @@ def phase1():
     agent24_hook_caps_repeated_tool_calls()
     agent25_steering_refuses_machine_words_to_a_client()
     agent26_steering_requires_retrieval_before_support()
+    agent27_unverified_guidance_is_never_usable()
     agent20_fixture_digests_match_their_passages()
     agent21_simulated_fixture_cannot_reach_the_application()
     agent22_identity_gate_cannot_be_bypassed()

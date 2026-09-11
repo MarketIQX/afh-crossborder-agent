@@ -240,10 +240,20 @@ def build_tool_functions(bound):
 
     @tool(name="get_service_knowledge")
     def get_service_knowledge(query: str, service_id: str = None) -> dict:
-        """Retrieve approved, effective professional knowledge for the
-        bound service. Returns units with their source locator and
-        verification status, the topics with no professionally verified
-        guidance, and any declared conflicts between sources."""
+        """Retrieve professional knowledge for the bound service.
+
+        `units` contains ONLY professionally verified guidance that is
+        effective for this case. It is the only material you may rely
+        on, quote, paraphrase or cite.
+
+        `consulted_unverified` lists sources that exist on this subject
+        and have NOT been signed off by a professional. They are
+        provided so you can state accurately that a source exists and
+        is unverified. You may not rely on them for any conclusion, and
+        the server refuses to record one as a citation.
+
+        Also returns the topics with no verified guidance, and any
+        declared conflicts between sources."""
         return bound.get_service_knowledge(query, service_id)
 
     @tool(name="record_proposed_facts")
