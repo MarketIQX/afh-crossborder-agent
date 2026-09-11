@@ -50,6 +50,17 @@ DEFAULT_INTERVAL_SECONDS = 60
 # that nobody is watching and that costs real money per call.
 MAX_RUNS_PER_CYCLE = 3
 
+# Composing is cheap and deterministic, so this is higher than the
+# reasoning budget. It is still bounded: an unattended process that can
+# write an unbounded number of letters is one nobody will leave running.
+MAX_DRAFTS_PER_CYCLE = 10
+
+# Imported rather than restated. The loop must not be able to form its
+# own opinion about which decisions may reach a client.
+from app.domain.drafting import CLIENT_FACING as _CLIENT_FACING  # noqa: E402
+
+CLIENT_FACING_STATES = tuple(sorted(_CLIENT_FACING))
+
 _STOPPING = False
 
 
@@ -177,6 +188,67 @@ def reason_over_cases(conn, report, model):
             print(f"  RUN FAILED   {case_id[:8]}  {exc}")
 
 
+def _revisions_awaiting_a_draft(conn, limit):
+    """Latest revision per case, client-facing, with no draft yet."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH latest AS (
+                SELECT DISTINCT ON (p.case_id)
+                    r.id AS revision_id,
+                    r.decision_state,
+                    c.reference
+                FROM app.action_proposals p
+                JOIN app.proposal_revisions r ON r.proposal_id = p.id
+                JOIN app.cases c ON c.id = p.case_id
+                ORDER BY p.case_id, r.created_at DESC
+            )
+            SELECT revision_id::text, decision_state, reference
+            FROM latest
+            WHERE decision_state = ANY(%s)
+              AND NOT EXISTS (
+                  SELECT 1 FROM app.draft_messages d
+                  WHERE d.proposal_revision_id = latest.revision_id
+              )
+            LIMIT %s
+            """,
+            (list(CLIENT_FACING_STATES), limit),
+        )
+
+        return cur.fetchall()
+
+
+def draft_letters(conn, report):
+    """Compose the letter a client-facing decision implies.
+
+    Composing is not sending and not approving. The runtime role holds
+    no privilege on approvals, so the most this can do is put words in
+    front of a person.
+    """
+    from app.domain import drafting
+
+    for revision_id, state, reference in _revisions_awaiting_a_draft(
+        conn, MAX_DRAFTS_PER_CYCLE
+    ):
+        if _STOPPING:
+            return
+
+        try:
+            drafting.compose(conn, revision_id)
+            report.drafted += 1
+            print(f"  DRAFTED      {reference}  {state}")
+        except drafting.DraftingRefused as exc:
+            # A refusal here is a fact worth surfacing, not a crash. The
+            # commonest is a required fact with no client-facing wording
+            # recorded, which is a five minute fix by a person.
+            report.errors.append(f"draft {reference}: {exc}")
+            print(f"  NOT DRAFTED  {reference}  {str(exc)[:90]}")
+        except Exception as exc:  # noqa: BLE001
+            report.errors.append(
+                f"draft {reference}: {exc.__class__.__name__}: {exc}"
+            )
+
+
 def run_cycle(model, fetch_mail=True):
     """One pass. Never raises: an unattended loop that dies is useless."""
     report = CycleReport(
@@ -191,6 +263,11 @@ def run_cycle(model, fetch_mail=True):
 
         if model is not None:
             reason_over_cases(conn, report, model)
+
+        # Drafting follows reasoning in the same cycle so a reviewer
+        # opening the console finds words to read rather than a button
+        # to press.
+        draft_letters(conn, report)
 
     return report
 

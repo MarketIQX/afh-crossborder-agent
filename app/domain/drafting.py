@@ -53,7 +53,8 @@ def _load_revision(cur, revision_id):
             r.payload,
             r.missing_predicates,
             p.case_id::text,
-            c.reference
+            c.reference,
+            c.service_id::text
         FROM app.proposal_revisions r
         JOIN app.action_proposals p ON p.id = r.proposal_id
         JOIN app.cases c ON c.id = p.case_id
@@ -73,6 +74,7 @@ def _load_revision(cur, revision_id):
         "missing_predicates": list(row[3] or []),
         "case_id": row[4],
         "reference": row[5],
+        "service_id": row[6],
     }
 
 
@@ -90,28 +92,62 @@ def _enquiry(cur, case_id):
     return cur.fetchone()
 
 
-def _question_lines(revision):
-    """The questions to ask, preferring the agent's own phrasing."""
-    requested = revision["payload"].get("requested_information") or []
+def _prompt_hints(cur, service_id, predicates):
+    """The client-facing wording for each predicate, from the database."""
+    if not predicates:
+        return {}
+
+    cur.execute(
+        """
+        SELECT predicate, coalesce(prompt_hint, '')
+        FROM app.service_required_facts
+        WHERE service_id = %s AND predicate = ANY(%s)
+        """,
+        (service_id, list(predicates)),
+    )
+
+    return {row[0]: row[1].strip() for row in cur.fetchall()}
+
+
+def _question_lines(cur, revision):
+    """The questions to ask, in words written for a client.
+
+    Only `prompt_hint` is used. The agent's own phrasing is not trusted
+    here even when it is good, because "sometimes the model's words and
+    sometimes ours" means nobody can say what a client will receive.
+
+    Raises rather than improvising. A predicate with no hint is a
+    five minute fix; a letter asking for
+    "days_present_in_india_current_year" is a client deciding the firm
+    is careless.
+    """
+    predicates = [
+        p for p in (revision["missing_predicates"] or []) if str(p).strip()
+    ]
+
+    if not predicates:
+        return []
+
+    hints = _prompt_hints(cur, revision["service_id"], predicates)
     lines = []
+    missing = []
 
-    for item in requested:
-        if not isinstance(item, dict):
-            continue
+    for predicate in predicates:
+        hint = hints.get(predicate, "")
 
-        question = (item.get("question") or "").strip()
-        predicate = (item.get("predicate") or "").strip()
+        if hint:
+            lines.append(hint)
+        else:
+            missing.append(predicate)
 
-        if question:
-            lines.append(question)
-        elif predicate:
-            lines.append(predicate.replace("_", " "))
-
-    if not lines:
-        lines = [
-            predicate.replace("_", " ")
-            for predicate in revision["missing_predicates"]
-        ]
+    if missing:
+        raise DraftingRefused(
+            "these facts have no client-facing wording recorded, so no "
+            "letter can ask for them: "
+            + ", ".join(sorted(missing))
+            + ". Add a prompt_hint in service_required_facts. Nothing "
+            "will be improvised from the column name."
+        )
 
     return lines
 
@@ -141,6 +177,11 @@ def compose(conn, revision_id):
 
         enquiry = _enquiry(cur, revision["case_id"])
 
+        # Read the client-facing wording while the cursor is open, and
+        # pass it on as data. A refusal here is deliberate: see
+        # _question_lines.
+        questions = _question_lines(cur, revision)
+
     if enquiry is None:
         raise DraftingRefused(
             "the case carries no enquiry, so there is no correspondent "
@@ -153,18 +194,17 @@ def compose(conn, revision_id):
     if not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
-    body = _body_for(state, revision)
+    body = _body_for(state, revision, questions)
 
     return approval_domain.create_draft(
         conn, revision_id, recipient, subject, body
     )
 
 
-def _body_for(state, revision):
+def _body_for(state, revision, questions):
     reference = revision["reference"]
 
     if state == "MISSING_FACTS":
-        questions = _question_lines(revision)
         listed = "\n".join(f"  {n}. {q}" for n, q in enumerate(questions, 1))
 
         return (

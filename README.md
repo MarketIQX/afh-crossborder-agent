@@ -162,7 +162,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-120 checks across eight suites. Every one names what it proves, and the
+121 checks across eight suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -183,7 +183,7 @@ Individual suites:
     tests/agent_slice_smoke.py phase1            AGENT01-AGENT26
     tests/ingestion_smoke.py phase1              INGEST01-INGEST14
     tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
-    tests/autonomy_smoke.py phase1               AUTO01-AUTO09
+    tests/autonomy_smoke.py phase1               AUTO01-AUTO10
     tests/approval_dispatch_smoke.py phase1      APPROVE01-APPROVE20
 
 `env_contract_smoke.py` needs no database and no credentials. It checks

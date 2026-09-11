@@ -323,6 +323,183 @@ def auto09_triaged_case_is_not_rerouted():
     print("AUTO09 TRIAGED CASE IS NOT REROUTED: PASS")
 
 
+def _seed_run(cur, case_id):
+    """A run for the revision to point at.
+
+    `proposal_revisions.run_id` is NOT NULL: a proposal that came from
+    nowhere is the thing most of these constraints exist to refuse, so
+    the fixture provides provenance rather than avoiding it.
+    """
+    run_id = str(uuid.uuid4())
+
+    cur.execute(
+        """
+        INSERT INTO app.agent_runs (
+            id, case_id, operation_id, runner, model_id,
+            prompt_version, prompt_digest, tool_schema_version,
+            context_builder_version, result_state, ended_at
+        ) VALUES (
+            %s, %s, %s, 'DETERMINISTIC_STUB', 'auto10-fixture',
+            'fixture', 'fixture', 'fixture', 'fixture', 'SUCCEEDED',
+            now()
+        )
+        """,
+        (run_id, case_id, f"auto10-{uuid.uuid4().hex[:12]}"),
+    )
+
+    return run_id
+
+
+def _seed_proposal(cur, case_id, state, predicates):
+    """A proposal and one revision in the given decision state."""
+    proposal_id = str(uuid.uuid4())
+    revision_id = str(uuid.uuid4())
+    run_id = _seed_run(cur, case_id)
+
+    cur.execute(
+        "INSERT INTO app.action_proposals (id, case_id) VALUES (%s, %s)",
+        (proposal_id, case_id),
+    )
+    cur.execute(
+        """
+        INSERT INTO app.proposal_revisions (
+            id, proposal_id, revision, run_id, decision_state, summary,
+            payload, missing_predicates
+        ) VALUES (%s, %s, 1, %s, %s, %s, %s, %s)
+        """,
+        (
+            revision_id,
+            proposal_id,
+            run_id,
+            state,
+            f"AUTO10 fixture revision in {state}",
+            Jsonb({}),
+            Jsonb(predicates),
+        ),
+    )
+
+    return revision_id
+
+
+def auto10_loop_drafts_only_client_facing_decisions():
+    """A client-facing decision is drafted; an internal one is not.
+
+    Both halves matter. Asserting only the first would pass for a loop
+    that drafts everything, and only the second for one that drafts
+    nothing.
+    """
+    from app.autonomy import loop
+
+    with admin() as conn:
+        testguard.assert_disposable(conn)
+
+        with conn.cursor() as cur:
+            mailbox_id = STATE["mailbox"]
+
+            facts_case = _seed_case(cur, mailbox_id, DOMINANT, 9)
+            gap_case = _seed_case(cur, mailbox_id, DOMINANT, 8)
+
+            cur.execute(
+                "UPDATE app.cases SET service_id = %s, "
+                "triage_method = 'HUMAN', triaged_at = now() "
+                "WHERE id = ANY(%s)",
+                (SERVICE_A, [facts_case, gap_case]),
+            )
+
+            # Required facts need client-facing wording, or drafting
+            # refuses by design. That refusal has its own check.
+            cur.execute(
+                "INSERT INTO app.service_required_facts "
+                "(service_id, predicate, prompt_hint) VALUES (%s, %s, %s) "
+                "ON CONFLICT DO NOTHING",
+                (
+                    SERVICE_A,
+                    "autosmoke_fact",
+                    "Which year does the enquiry concern?",
+                ),
+            )
+
+            _seed_proposal(
+                cur, facts_case, "MISSING_FACTS", ["autosmoke_fact"]
+            )
+            _seed_proposal(cur, gap_case, "MISSING_KNOWLEDGE", [])
+
+    class Report:
+        def __init__(self):
+            self.drafted = 0
+            self.errors = []
+
+    report = Report()
+
+    # The drafting stage is global by design: it drafts every
+    # client-facing revision without a draft. Calling it here would
+    # otherwise write drafts onto other suites' fixtures and leave their
+    # cleanup unable to delete its own revisions.
+    with runtime() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id::text FROM app.draft_messages")
+            before = {row[0] for row in cur.fetchall()}
+
+        loop.draft_letters(conn, report)
+
+    with admin() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT d.id::text
+                FROM app.draft_messages d
+                JOIN app.proposal_revisions r
+                    ON r.id = d.proposal_revision_id
+                JOIN app.action_proposals p ON p.id = r.proposal_id
+                WHERE p.case_id <> ALL(%s)
+                """,
+                ([facts_case, gap_case],),
+            )
+            strangers = [
+                row[0] for row in cur.fetchall() if row[0] not in before
+            ]
+
+            if strangers:
+                cur.execute(
+                    "DELETE FROM app.draft_messages WHERE id = ANY(%s)",
+                    (strangers,),
+                )
+
+    with runtime() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.id::text, count(d.id)
+                FROM app.cases c
+                JOIN app.action_proposals p ON p.case_id = c.id
+                JOIN app.proposal_revisions r ON r.proposal_id = p.id
+                LEFT JOIN app.draft_messages d
+                    ON d.proposal_revision_id = r.id
+                WHERE c.id = ANY(%s)
+                GROUP BY c.id
+                """,
+                ([facts_case, gap_case],),
+            )
+            counts = dict(cur.fetchall())
+
+    if counts.get(facts_case, 0) != 1:
+        raise RuntimeError(
+            f"AUTO10 FAIL: a client-facing decision was not drafted "
+            f"(drafts={counts.get(facts_case)}, errors={report.errors})"
+        )
+
+    if counts.get(gap_case, 0) != 0:
+        raise RuntimeError(
+            "AUTO10 FAIL: an internal-only decision was drafted to a "
+            "client"
+        )
+
+    print(
+        "AUTO10 LOOP DRAFTS ONLY CLIENT FACING DECISIONS: PASS "
+        f"(drafted {report.drafted})"
+    )
+
+
 CHECKS = (
     auto01_dominant_signal_routes,
     auto02_routing_is_attributed,
@@ -333,6 +510,7 @@ CHECKS = (
     auto07_loop_cannot_approve_or_dispatch,
     auto08_router_uses_no_language_model,
     auto09_triaged_case_is_not_rerouted,
+    auto10_loop_drafts_only_client_facing_decisions,
 )
 
 
@@ -350,6 +528,47 @@ def cleanup():
         testguard.assert_disposable(conn)
 
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM app.draft_messages
+                WHERE proposal_revision_id IN (
+                    SELECT r.id
+                    FROM app.proposal_revisions r
+                    JOIN app.action_proposals p ON p.id = r.proposal_id
+                    JOIN app.cases c ON c.id = p.case_id
+                    WHERE c.reference LIKE 'AUTO-%'
+                )
+                """
+            )
+            cur.execute(
+                """
+                DELETE FROM app.proposal_revisions
+                WHERE proposal_id IN (
+                    SELECT p.id
+                    FROM app.action_proposals p
+                    JOIN app.cases c ON c.id = p.case_id
+                    WHERE c.reference LIKE 'AUTO-%'
+                )
+                """
+            )
+            cur.execute(
+                "DELETE FROM app.action_proposals WHERE case_id IN ("
+                "SELECT id FROM app.cases WHERE reference LIKE 'AUTO-%')"
+            )
+            cur.execute(
+                "DELETE FROM app.agent_tool_calls WHERE run_id IN ("
+                "SELECT id FROM app.agent_runs WHERE case_id IN ("
+                "SELECT id FROM app.cases WHERE reference LIKE 'AUTO-%'))"
+            )
+            cur.execute(
+                "DELETE FROM app.agent_runs WHERE case_id IN ("
+                "SELECT id FROM app.cases WHERE reference LIKE 'AUTO-%')"
+            )
+            cur.execute(
+                "DELETE FROM app.service_required_facts "
+                "WHERE service_id = ANY(%s)",
+                ([SERVICE_A, SERVICE_B],),
+            )
             cur.execute(
                 "DELETE FROM app.triage_attempts WHERE case_id IN ("
                 "SELECT id FROM app.cases WHERE reference LIKE 'AUTO-%')"
