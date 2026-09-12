@@ -20,11 +20,11 @@ import re
 from pathlib import Path
 
 from strands import Agent, tool
-from strands.models import BedrockModel
 
 from strands.vended_plugins.skills import AgentSkills
 
 from app.agent import hooks as hooks_module
+from app.agent import model_provider
 from app.agent import steering as steering_module
 
 SKILLS_DIR = Path(__file__).resolve().parent / "skills"
@@ -193,13 +193,14 @@ def check_access(session, model_id=None, region=None):
     """
     identity = enforce_identity(session)
 
-    model = BedrockModel(
-        model_id=model_id or config.get("BEDROCK_MODEL_ID", DEFAULT_MODEL_ID),
-        boto_session=with_region(
-            session, region or config.get("AWS_REGION", DEFAULT_REGION)
-        ),
+    checked_region = region or config.get("AWS_REGION", DEFAULT_REGION)
+
+    model, _ = model_provider.build(
         max_tokens=64,
-        streaming=False,
+        model_id=model_id
+        or config.get("BEDROCK_MODEL_ID", DEFAULT_MODEL_ID),
+        boto_session=with_region(session, checked_region),
+        region=checked_region,
     )
 
     agent = Agent(
@@ -339,6 +340,7 @@ class BedrockStrandsModel:
         """Configuration, for the run record and for evidence."""
         return {
             "runner": self.runner,
+            "provider": model_provider.selected(),
             "model_id": self.model_id,
             "region": self.region,
             "temperature": self.temperature,
@@ -350,24 +352,17 @@ class BedrockStrandsModel:
 
     def build_agent(self, bound):
         """Construct the agent and prove its tool surface."""
-        model_kwargs = {
-            "model_id": self.model_id,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            "streaming": False,
-        }
-
-        # The SDK rejects a region and a session together, so the region
-        # is carried by the session when there is one. A session with no
-        # region would otherwise fail later and far less clearly.
-        session = self.session_with_region()
-
-        if session is not None:
-            model_kwargs["boto_session"] = session
-        else:
-            model_kwargs["region_name"] = self.region
-
-        model = BedrockModel(**model_kwargs)
+        # The adapter assembles the provider's arguments, including
+        # the rule that the SDK rejects a region and a session together.
+        # A session with no region would otherwise fail later and far
+        # less clearly.
+        model, _ = model_provider.build(
+            max_tokens=self.max_tokens,
+            model_id=self.model_id,
+            temperature=self.temperature,
+            boto_session=self.session_with_region(),
+            region=self.region,
+        )
 
         # Deterministic control at the agent's own lifecycle points.
         # The bound service and the trace both come from the tool object,
@@ -449,7 +444,13 @@ class BedrockStrandsModel:
         # Ahead of everything. No credentials, no STS, root, wrong
         # account or wrong principal all stop here, before any Bedrock
         # call is made.
-        enforce_identity(self.session())
+        #
+        # The gate checks an AWS caller, so it applies exactly when the
+        # configured provider is AWS. Asking the adapter is deliberate:
+        # a provider that never reaches AWS must not be forced through a
+        # gate it cannot pass, and must not skip one silently either.
+        if model_provider.requires_aws():
+            enforce_identity(self.session())
 
         agent = self.build_agent(bound)
 

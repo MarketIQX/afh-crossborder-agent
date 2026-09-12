@@ -25,27 +25,34 @@ def build_agent_factory(stub=None):
         return stub
 
     from strands import Agent
-    from strands.models import BedrockModel
 
-    from app.agent import bedrock
+    from app.agent import bedrock, model_provider
 
     region = config.get("AWS_REGION", bedrock.DEFAULT_REGION)
-    session = bedrock.build_session(region)
-    bedrock.enforce_identity(session)
 
-    model_id = config.get("BEDROCK_MODEL_ID", bedrock.DEFAULT_MODEL_ID)
+    # Only an AWS provider has an AWS identity to enforce, and only it
+    # needs a session built at all.
+    if model_provider.requires_aws():
+        session = bedrock.with_region(
+            bedrock.build_session(region), region
+        )
+        bedrock.enforce_identity(session)
+        model_id = config.get(
+            "BEDROCK_MODEL_ID", bedrock.DEFAULT_MODEL_ID
+        )
+    else:
+        session = None
+        model_id = None
 
     def factory(system_prompt):
-        return Agent(
-            model=BedrockModel(
-                model_id=model_id,
-                boto_session=bedrock.with_region(session, region),
-                max_tokens=2048,
-                temperature=0.0,
-                streaming=False,
-            ),
-            system_prompt=system_prompt,
+        model, _ = model_provider.build(
+            max_tokens=2048,
+            model_id=model_id,
+            temperature=0.0,
+            boto_session=session,
+            region=region,
         )
+        return Agent(model=model, system_prompt=system_prompt)
 
     factory.model_id = model_id
     factory.runner = "BEDROCK_STRANDS"

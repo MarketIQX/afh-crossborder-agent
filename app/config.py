@@ -23,6 +23,7 @@ _SECRET_KEYS = frozenset(
         "POSTGRES_ADMIN_PASSWORD",
         "POSTGRES_APP_PASSWORD",
         "POSTGRES_REVIEWER_PASSWORD",
+        "ANTHROPIC_API_KEY",
     }
 )
 
@@ -224,6 +225,24 @@ CONTRACT = (
         "agents_reviewer", "Defaults to agents_reviewer.",
     ),
     ContractKey(
+        "MODEL_PROVIDER", "model", False, False, "bedrock",
+        "Which provider answers a run: bedrock or anthropic. Defaults "
+        "to bedrock, so an unset value is the behaviour this project "
+        "has always had. A provider that cannot be built refuses "
+        "rather than substituting another one.",
+    ),
+    ContractKey(
+        "ANTHROPIC_API_KEY", "model", False, True,
+        "change-me-anthropic-key",
+        "Read only when MODEL_PROVIDER is anthropic. Requires the "
+        "provider extra: pip install 'strands-agents[anthropic]'.",
+    ),
+    ContractKey(
+        "ANTHROPIC_MODEL_ID", "model", False, False, "claude-sonnet-5",
+        "Model id for the Anthropic provider. Unproven until a real "
+        "invocation succeeds against it.",
+    ),
+    ContractKey(
         "AWS_REGION", "bedrock", False, False, "us-east-1",
         "Region for Bedrock. Defaults to us-east-1.",
     ),
@@ -275,11 +294,12 @@ CONTRACT = (
 
 CONTRACT_BY_NAME = {key.name: key for key in CONTRACT}
 
-GROUP_ORDER = ("database", "bedrock", "gmail")
+GROUP_ORDER = ("database", "model", "bedrock", "gmail")
 
 GROUP_TITLES = {
     "database": "PostgreSQL. Required for everything.",
-    "bedrock": "AWS Bedrock. Required to run the agent.",
+    "model": "Which model answers. Bedrock is the default.",
+    "bedrock": "AWS Bedrock. Required when MODEL_PROVIDER is bedrock.",
     "gmail": "Gmail. Required to ingest real mail or send a real reply.",
 }
 

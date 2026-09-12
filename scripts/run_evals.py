@@ -51,35 +51,47 @@ def show_history(conn):
 
 
 def build_verify():
-    """The real graph, on Bedrock."""
+    """The real graph, on the configured provider."""
     from strands import Agent
-    from strands.models import BedrockModel
 
-    from app.agent import bedrock
+    from app.agent import bedrock, model_provider
     from app.training import verify_graph
 
     region = config.get("AWS_REGION", bedrock.DEFAULT_REGION)
-    session = bedrock.build_session(region)
-    bedrock.enforce_identity(session)
 
-    model_id = config.get("BEDROCK_MODEL_ID", bedrock.DEFAULT_MODEL_ID)
+    # Only an AWS provider has an AWS caller to check.
+    if model_provider.requires_aws():
+        session = bedrock.with_region(
+            bedrock.build_session(region), region
+        )
+        bedrock.enforce_identity(session)
+        model_id = config.get(
+            "BEDROCK_MODEL_ID", bedrock.DEFAULT_MODEL_ID
+        )
+    else:
+        session = None
+        model_id = None
 
     def factory(system_prompt):
-        return Agent(
-            model=BedrockModel(
-                model_id=model_id,
-                boto_session=bedrock.with_region(session, region),
-                max_tokens=512,
-                temperature=0.0,
-                streaming=False,
-            ),
-            system_prompt=system_prompt,
+        model, _ = model_provider.build(
+            max_tokens=512,
+            model_id=model_id,
+            temperature=0.0,
+            boto_session=session,
+            region=region,
         )
+        return Agent(model=model, system_prompt=system_prompt)
 
     def verify(statement, topic, passages):
         return verify_graph.verify(factory, statement, topic, passages)
 
-    return verify, "BEDROCK_STRANDS", model_id
+    # The stored runner label names what answered, so a later reader
+    # cannot mistake one provider's score for another's.
+    runner = f"{model_provider.selected().upper()}_STRANDS"
+
+    return verify, runner, model_provider.resolved_model_id(
+        model_id=model_id
+    )
 
 
 def main(argv):
