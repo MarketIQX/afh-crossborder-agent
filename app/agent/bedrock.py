@@ -240,7 +240,7 @@ def build_tool_functions(bound):
         return bound.get_case_context()
 
     @tool(name="get_service_knowledge")
-    def get_service_knowledge(query: str, service_id: str = None) -> dict:
+    def get_service_knowledge(query: str, service_id: str = "") -> dict:
         """Retrieve professional knowledge for the bound service.
 
         `units` contains ONLY professionally verified guidance that is
@@ -259,11 +259,12 @@ def build_tool_functions(bound):
 
     @tool(name="record_proposed_facts")
     def record_proposed_facts(
-        facts: list, evidence_refs: list = None
+        facts: list, evidence_refs: list = ()
     ) -> dict:
         """Record facts the enquiry itself states. Each fact is an
         object with a 'predicate' and a 'value'. Everything recorded is
-        marked PROPOSED and means nothing until a human confirms it."""
+        marked PROPOSED and means nothing until a human confirms it.
+        Pass an empty array for evidence_refs if there are none."""
         return bound.record_proposed_facts(facts, evidence_refs)
 
     @tool(name="propose_next_action")
@@ -309,10 +310,29 @@ def build_session(region=None):
 
 
 class BedrockStrandsModel:
-    """Real model runs. Stamped BEDROCK_STRANDS in the run record."""
+    """Real model runs, stamped with the provider that answered them.
 
-    runner = "BEDROCK_STRANDS"
+    The class name is now narrower than what it does: it drives whatever
+    provider `model_provider` selects. Renaming it is recorded as debt
+    (D8) rather than done two days from a deadline, because the name is
+    referenced across the runner, the scripts and the tests, and a rename
+    proves nothing that this docstring does not.
+    """
+
     prompt_version = PROMPT_VERSION
+
+    @property
+    def runner(self):
+        """The run-record label, derived rather than declared.
+
+        This was the constant `"BEDROCK_STRANDS"`, which would have
+        filed a Groq run as a Bedrock one in `app.agent_runs`. The
+        database refused the alternative outright -- a CHECK constraint
+        permitted only two runner values -- and refusing was the correct
+        behaviour: it had been told two runners exist. Migration 025
+        gives it the third rather than letting the label lie.
+        """
+        return f"{model_provider.selected().upper()}_STRANDS"
 
     def __init__(
         self,
@@ -322,9 +342,14 @@ class BedrockStrandsModel:
         max_tokens=DEFAULT_MAX_TOKENS,
         boto_session=None,
     ):
-        self.model_id = model_id or config.get(
-            "BEDROCK_MODEL_ID", DEFAULT_MODEL_ID
-        )
+        # Resolved through the adapter, which knows which provider is
+        # selected. This was `config.get("BEDROCK_MODEL_ID",
+        # DEFAULT_MODEL_ID)`, which was not merely a mislabelling: the
+        # value is passed straight back into `model_provider.build`, so
+        # a Groq run would have asked Groq for
+        # `us.anthropic.claude-sonnet-4-5-...` and been rejected by an
+        # endpoint that has never heard of it.
+        self.model_id = model_id or model_provider.resolved_model_id()
         self.region = region or config.get("AWS_REGION", DEFAULT_REGION)
         self.temperature = temperature
         self.max_tokens = max_tokens

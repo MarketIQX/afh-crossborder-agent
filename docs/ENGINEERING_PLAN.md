@@ -209,8 +209,23 @@ recorded. **This blocks three of the five judging criteria.**
 Decision already taken: the rules require Strands, not Bedrock, so the
 provider is configuration. The adapter is built and verified.
 
-**Owner: AK.** Unblocked by one `ANTHROPIC_API_KEY` in `.env`.
-Everything in Sprint 1 proceeds without it; Sprint 2 onward does not.
+**Resolved 2026-09-13, for inference only.** Groq supplies model
+inference through Strands' own OpenAI-compatible provider; Strands
+remains the agent framework. Bedrock and AgentCore are not claimed as
+implemented or demonstrated, and AgentCore's managed runtime, identity,
+memory, gateway and observability are not replaced by this -- only the
+model call is.
+
+    Bedrock       UNAVAILABLE - AWS account authorisation not granted
+                  before the deadline, refused twice in writing
+    Groq          CURRENT INFERENCE PROVIDER - demonstrated end to end
+    Strands       REMAINS THE ACTUAL AGENT FRAMEWORK
+    AgentCore     NOT CLAIMED AS IMPLEMENTED OR DEMONSTRATED
+
+Proven on real case `AFH-9209FE92`: `GROQ_STRANDS`,
+`openai/gpt-oss-120b`, `SUCCEEDED`, four real tools called, 88 seconds,
+18,919 tokens. See D11 for what that token figure means for the free
+tier.
 
 ### 5.2 BLOCKER-2: uncommitted work
 
@@ -252,6 +267,27 @@ misrepresentation.
 **Status: PLANNED.** Deliberately not investigated during S0.4, which is
 an unblock spike and must not become a second project.
 
+### 5.2b The steering layer governs nothing on a real call
+
+Found during S0.4 and severe enough to name here rather than leave in a
+table. `ClientCopyGuard` and `EvidenceFirstGuard` are registered, fire on
+every `propose_next_action`, and inspect an empty string, because the
+tool's arguments arrive nested under `action` while the extractor reads
+the top level.
+
+This is the exact failure this build documented in AWS's own reference
+agent -- a steering handler that executes and decides nothing, whose
+ledger shows no problems because it never saw any. The difference is that
+this one is ours, and the two checks that cover it pass by calling the
+inspector directly, which proves the inspector and not the wiring.
+
+Fix in Sprint 1, with a check that drives `before_tool_call` using the
+real schema shape rather than the inspector in isolation. Until then no
+claim may be made that client-facing copy is guarded at runtime.
+
+**Status: PARTIAL.** The inspector is correct and proven. The wiring is
+broken and now proven broken.
+
 ### 5.3 Recorded defects, not blockers
 
 | # | Defect | Evidence |
@@ -264,6 +300,9 @@ an unblock spike and must not become a second project.
 | D6 | Dead `titles` entries for routes that no longer reach them | `server.py:664` |
 | D7 | `record_proposed_facts` is not idempotent across runs, which contract section 7 requires. `case_facts` has only a primary key, and each call mints a fresh uuid | Live data: `country_of_residence` holds 7 rows across 7 runs for 3 cases |
 | D8 | `BedrockStrandsModel` is the class name executing a Groq run. Semantic debt, deliberately not renamed two days from the deadline | `app/agent/bedrock.py:311` |
+| D9 | Model output containing a character outside cp1252 kills a run on Windows. Strands' default callback handler writes to stdout; `\u202f` from the model raised `UnicodeEncodeError` and the run recorded FAILED **after** its proposal had already persisted. Fix is `callback_handler=None` on a server-side agent, not an encoding flag | run `41973747`, reproduced twice |
+| **D10** | **`ClientCopyGuard` and `EvidenceFirstGuard` inspect nothing on a real tool call.** Strands passes `{"action": {...}}` for `propose_next_action`, and `client_facing_text` reads `client_message` off the top level, so it sees `''` and both guards return `Proceed` on a letter `inspect_copy` flags with two problems. `AGENT25`/`AGENT26` pass because they call `inspect_copy` directly and never drive `before_tool_call` | proven both ways: nested payload → PROCEEDED, flat payload → GUIDED |
+| D11 | A single enquiry costs ~18,900 tokens (16,717 in, 2,202 out) across 5 model calls. Groq's free tier allows 8,000 per minute, so one enquiry exceeds the per-minute ceiling by more than double | run `70f00951`, measured |
 
 ---
 
