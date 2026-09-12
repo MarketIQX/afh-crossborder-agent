@@ -55,7 +55,9 @@ def build_agent_factory(stub=None):
         return Agent(model=model, system_prompt=system_prompt)
 
     factory.model_id = model_id
-    factory.runner = "BEDROCK_STRANDS"
+    # The label names what answered. Hardcoding Bedrock here
+    # would file a Groq extraction run as a Bedrock one.
+    factory.runner = f"{model_provider.selected().upper()}_STRANDS"
 
     return factory
 

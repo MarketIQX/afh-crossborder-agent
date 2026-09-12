@@ -217,6 +217,41 @@ Everything in Sprint 1 proceeds without it; Sprint 2 onward does not.
 Twelve files of verified adapter work are uncommitted, and six commits
 are unpushed. **Owner: AK**, one approval.
 
+### 5.2a P0 COMPLIANCE GATE: project provenance
+
+Not a defect and not a blocker to building, but a gate that outranks
+every technical item in this plan, because failing it cannot be
+recovered by any amount of engineering quality.
+
+The Official Rules require the submitted project to be **newly created
+during the submission period** (2026-08-10 to 2026-09-14). They permit
+standard tools, frameworks, starter templates and AI coding assistants,
+and they require **disclosure** of other pre-existing code or work
+incorporated into the project.
+
+This repository is substantial -- 42 modules, 24 migrations, 30+ tables,
+a reviewer console, ingestion, training, an agent runtime, autonomy and
+a Gmail integration. That is not evidence of a violation. It is evidence
+that the question deserves an audit rather than an assumption, and no
+compliance claim should be made in either direction until one has run.
+
+Required before submission, as part of S0.2/S0.3:
+
+1. Establish this repository's history relative to 2026-08-10 from git
+   itself, not from recollection.
+2. Identify anything that existed before the submission period.
+3. Distinguish standard or open-source dependencies from prior work of
+   our own.
+4. Identify whatever requires disclosure.
+5. Prepare an evidence-backed disclosure if any is needed.
+
+Two rules govern the audit. No guessing, and no retroactive rewriting of
+history -- the second would turn a disclosable fact into a
+misrepresentation.
+
+**Status: PLANNED.** Deliberately not investigated during S0.4, which is
+an unblock spike and must not become a second project.
+
 ### 5.3 Recorded defects, not blockers
 
 | # | Defect | Evidence |
@@ -227,6 +262,8 @@ are unpushed. **Owner: AK**, one approval.
 | D4 | Conflict is declared, never detected | `knowledge_unit_conflicts` = 0 rows |
 | D5 | `/knowledge` renders "Not built yet." in the primary nav | live HTTP |
 | D6 | Dead `titles` entries for routes that no longer reach them | `server.py:664` |
+| D7 | `record_proposed_facts` is not idempotent across runs, which contract section 7 requires. `case_facts` has only a primary key, and each call mints a fresh uuid | Live data: `country_of_residence` holds 7 rows across 7 runs for 3 cases |
+| D8 | `BedrockStrandsModel` is the class name executing a Groq run. Semantic debt, deliberately not renamed two days from the deadline | `app/agent/bedrock.py:311` |
 
 ---
 

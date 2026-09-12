@@ -25,13 +25,24 @@ from app import config
 
 BEDROCK = "bedrock"
 ANTHROPIC = "anthropic"
+GROQ = "groq"
 
-PROVIDERS = (BEDROCK, ANTHROPIC)
+PROVIDERS = (BEDROCK, ANTHROPIC, GROQ)
 
 # Overridable, and unproven until a real invocation succeeds against it.
 DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-5"
+DEFAULT_GROQ_MODEL_ID = "openai/gpt-oss-120b"
+DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-INSTALL_HINT = "pip install 'strands-agents[anthropic]'"
+ANTHROPIC_INSTALL_HINT = "pip install 'strands-agents[anthropic]'"
+OPENAI_INSTALL_HINT = "pip install 'strands-agents[openai]'"
+
+# Groq's free tier reads at 600 seconds by default through the OpenAI
+# SDK, which is long enough that a hung request looks like a hung
+# application. A model call that has not answered in a minute has
+# failed as far as an enquiry is concerned, and the deterministic layer
+# would rather record SYSTEM_FAILURE than wait.
+GROQ_TIMEOUT_SECONDS = 60.0
 
 
 class ProviderUnavailable(RuntimeError):
@@ -121,7 +132,7 @@ def _build_anthropic(model_id, max_tokens, temperature):
     except ImportError as exc:
         raise ProviderUnavailable(
             f"MODEL_PROVIDER is {ANTHROPIC} but the provider is not "
-            f"installed. Install it with: {INSTALL_HINT}"
+            f"installed. Install it with: {ANTHROPIC_INSTALL_HINT}"
         ) from exc
 
     key = (config.get("ANTHROPIC_API_KEY", "") or "").strip()
@@ -160,6 +171,84 @@ def _build_anthropic(model_id, max_tokens, temperature):
     return model, descriptor
 
 
+def _build_groq(model_id, max_tokens, temperature):
+    """Groq through Strands' own OpenAI-compatible provider.
+
+    Groq supplies inference and nothing else. Strands keeps the agent
+    loop, the tools, the hooks and the steering; the deterministic layer
+    keeps policy, state, approvals and evidence. Nothing here reaches
+    Groq's server-side tool runtime, and no other module imports a Groq
+    client.
+
+    Two arguments are load-bearing and neither is a default.
+
+    `stream=False`. The adapter defaults streaming to True, and this
+    project has been non-streaming since the first Bedrock call. A
+    streaming request would also invalidate the structured-output path,
+    which Strands runs through a non-streaming `parse()`.
+
+    `parallel_tool_calls=False`. Groq's API defaults this to true while
+    `openai/gpt-oss-120b` does not support parallel tool use, so leaving
+    it out is the risk rather than the mitigation -- the omission is
+    filled in by Groq's default, not by ours. Strands never sets the
+    parameter itself, which was first read here as evidence that no
+    conflict was possible. That inference was wrong, and it is the
+    reason this line is explicit and checked.
+    """
+    try:
+        from strands.models.openai import OpenAIModel
+    except ImportError as exc:
+        raise ProviderUnavailable(
+            f"MODEL_PROVIDER is {GROQ} but the OpenAI-compatible "
+            f"provider is not installed. Install it with: "
+            f"{OPENAI_INSTALL_HINT}"
+        ) from exc
+
+    key = (config.get("GROQ_API_KEY", "") or "").strip()
+
+    if not key:
+        raise ProviderUnavailable(
+            f"MODEL_PROVIDER is {GROQ} but GROQ_API_KEY is not set. "
+            f"Nothing is substituted, because a run must not be "
+            f"recorded against a provider that did not answer it."
+        )
+
+    resolved = model_id or config.get(
+        "GROQ_MODEL_ID", DEFAULT_GROQ_MODEL_ID
+    )
+    base_url = config.get("GROQ_BASE_URL", DEFAULT_GROQ_BASE_URL)
+
+    params = {
+        "max_tokens": max_tokens,
+        "parallel_tool_calls": False,
+    }
+
+    if temperature is not None:
+        params["temperature"] = temperature
+
+    model = OpenAIModel(
+        client_args={
+            "api_key": key,
+            "base_url": base_url,
+            "timeout": GROQ_TIMEOUT_SECONDS,
+        },
+        model_id=resolved,
+        params=params,
+        stream=False,
+    )
+
+    descriptor = {
+        "provider": GROQ,
+        "model_id": resolved,
+        "region": None,
+        "streaming": False,
+        "base_url": base_url,
+        "parallel_tool_calls": False,
+    }
+
+    return model, descriptor
+
+
 def build(
     max_tokens,
     model_id=None,
@@ -180,6 +269,9 @@ def build(
             model_id, max_tokens, temperature, boto_session, region
         )
 
+    if name == GROQ:
+        return _build_groq(model_id, max_tokens, temperature)
+
     return _build_anthropic(model_id, max_tokens, temperature)
 
 
@@ -197,6 +289,9 @@ def resolved_model_id(provider=None, model_id=None):
 
     if name == BEDROCK:
         return config.get("BEDROCK_MODEL_ID", "")
+
+    if name == GROQ:
+        return config.get("GROQ_MODEL_ID", DEFAULT_GROQ_MODEL_ID)
 
     return config.get("ANTHROPIC_MODEL_ID", DEFAULT_ANTHROPIC_MODEL_ID)
 

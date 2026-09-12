@@ -24,6 +24,7 @@ _SECRET_KEYS = frozenset(
         "POSTGRES_APP_PASSWORD",
         "POSTGRES_REVIEWER_PASSWORD",
         "ANTHROPIC_API_KEY",
+        "GROQ_API_KEY",
     }
 )
 
@@ -226,7 +227,8 @@ CONTRACT = (
     ),
     ContractKey(
         "MODEL_PROVIDER", "model", False, False, "bedrock",
-        "Which provider answers a run: bedrock or anthropic. Defaults "
+        "Which provider answers a run: bedrock, anthropic or groq. "
+        "Defaults "
         "to bedrock, so an unset value is the behaviour this project "
         "has always had. A provider that cannot be built refuses "
         "rather than substituting another one.",
@@ -236,6 +238,23 @@ CONTRACT = (
         "change-me-anthropic-key",
         "Read only when MODEL_PROVIDER is anthropic. Requires the "
         "provider extra: pip install 'strands-agents[anthropic]'.",
+    ),
+    ContractKey(
+        "GROQ_API_KEY", "model", False, True, "change-me-groq-key",
+        "Read only when MODEL_PROVIDER is groq. Requires the provider "
+        "extra: pip install 'strands-agents[openai]'. Groq supplies "
+        "inference only; Strands keeps the agent loop and the tools.",
+    ),
+    ContractKey(
+        "GROQ_MODEL_ID", "model", False, False, "openai/gpt-oss-120b",
+        "Model id for the Groq provider. A candidate rather than a "
+        "decision until a real eval has run against it.",
+    ),
+    ContractKey(
+        "GROQ_BASE_URL", "model", False, False,
+        "https://api.groq.com/openai/v1",
+        "Groq's OpenAI-compatible endpoint, reached through Strands' "
+        "own OpenAIModel rather than a custom adapter.",
     ),
     ContractKey(
         "ANTHROPIC_MODEL_ID", "model", False, False, "claude-sonnet-5",
@@ -257,14 +276,17 @@ CONTRACT = (
     ),
     ContractKey(
         "AFH_AWS_ACCOUNT_ID", "bedrock", True, False, "000000000000",
-        "Required by the identity gate. Your own 12 digit account id. "
-        "Without it no Bedrock call is attempted at all.",
+        "Required whenever MODEL_PROVIDER is bedrock, which is the "
+        "default. Your own 12 digit account id. Without it no "
+        "Bedrock call is attempted at all. Not read by any other "
+        "provider: the identity gate runs only when requires_aws().",
     ),
     ContractKey(
         "AFH_AWS_EXPECTED_PRINCIPAL", "bedrock", True, False,
         "arn:aws:iam::000000000000:user/your-deploy-user",
-        "Required by the identity gate. The exact caller ARN expected. "
-        "Root is refused even when it matches the account.",
+        "Required whenever MODEL_PROVIDER is bedrock. The exact caller "
+        "ARN expected; root is refused even when it matches the "
+        "account. Not read by any other provider.",
     ),
     ContractKey(
         "GOOGLE_OAUTH_CLIENT_FILE", "gmail", True, False,

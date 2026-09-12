@@ -139,7 +139,7 @@ about the client can never decide which rules govern that client.
 
 ### What is actually proven
 
-**165 checks across eleven suites, passing from nothing.** A throwaway
+**171 checks across eleven suites, passing from nothing.** A throwaway
 PostgreSQL container is built from the repository alone, every check runs
 against it, and the container is destroyed.
 

@@ -1,4 +1,4 @@
-"""MODEL01-MODEL12. Changing who answers must not change what is asked.
+"""MODEL01-MODEL18. Changing who answers must not change what is asked.
 
 The competition requires Strands Agents as its foundation and describes
 Amazon Bedrock and AgentCore as encouraged rather than required. Bedrock
@@ -407,7 +407,11 @@ def model11_no_call_site_constructs_a_provider_directly():
 
             text = path.read_text(encoding="utf-8", errors="replace")
 
-            for token in ("BedrockModel(", "AnthropicModel("):
+            for token in (
+                "BedrockModel(",
+                "AnthropicModel(",
+                "OpenAIModel(",
+            ):
                 if token in text:
                     offenders.append(
                         f"{path.relative_to(REPO_ROOT)}: {token}"
@@ -436,6 +440,182 @@ def model12_the_run_record_names_the_provider():
     )
 
 
+def model13_groq_refuses_without_a_key():
+    """A missing credential must stop the run, not pick a provider."""
+    original = with_config({})
+    outcome = None
+    try:
+        model_provider.build(
+            max_tokens=64, provider=model_provider.GROQ
+        )
+    except model_provider.ProviderUnavailable as exc:
+        outcome = str(exc)
+    except Exception as exc:  # noqa: BLE001
+        outcome = f"WRONG EXCEPTION {exc.__class__.__name__}"
+    finally:
+        restore(original)
+
+    check(
+        "MODEL13 GROQ REFUSES WITHOUT A KEY",
+        outcome is not None and "GROQ_API_KEY" in outcome,
+        f"outcome was {outcome!r}",
+    )
+
+
+def _groq_request():
+    """The body that would be sent to Groq, built with a placeholder key.
+
+    `format_request` is pure, so this reaches no network. It is the only
+    honest way to check a default we did not set.
+    """
+    original = with_config({"GROQ_API_KEY": "placeholder-not-real"})
+    try:
+        model, descriptor = model_provider.build(
+            max_tokens=2048,
+            temperature=0.0,
+            provider=model_provider.GROQ,
+        )
+        request = model.format_request(
+            messages=[{"role": "user", "content": [{"text": "x"}]}],
+            tool_specs=[],
+            system_prompt="s",
+        )
+    finally:
+        restore(original)
+
+    return request, descriptor
+
+
+def model14_the_groq_request_does_not_stream():
+    """Strands defaults streaming to True; this project never streams.
+
+    A streaming request would also break the structured-output path,
+    which Strands runs through a non-streaming `parse()`.
+    """
+    request, _ = _groq_request()
+
+    check(
+        "MODEL14 THE GROQ REQUEST DOES NOT STREAM",
+        request.get("stream") is False
+        and "stream_options" not in request,
+        f"stream={request.get('stream')!r}, "
+        f"stream_options present={'stream_options' in request}",
+    )
+
+
+def model15_parallel_tool_calls_is_explicitly_disabled():
+    """Groq defaults this to true; gpt-oss-120b does not support it.
+
+    Omitting the parameter does not mean "off", it means Groq applies
+    its own default. That reading error is the reason this check exists:
+    Strands never sets the parameter, which was first taken as proof no
+    conflict was possible.
+    """
+    request, descriptor = _groq_request()
+
+    check(
+        "MODEL15 PARALLEL TOOL CALLS IS EXPLICITLY DISABLED",
+        request.get("parallel_tool_calls") is False
+        and descriptor.get("parallel_tool_calls") is False,
+        f"request={request.get('parallel_tool_calls')!r} "
+        f"descriptor={descriptor.get('parallel_tool_calls')!r}",
+    )
+
+
+def model16_groq_needs_no_aws_identity():
+    """The identity gate is specific to AWS and must not be faked."""
+    original = with_config({})
+    try:
+        needed = model_provider.requires_aws(model_provider.GROQ)
+    finally:
+        restore(original)
+
+    check(
+        "MODEL16 GROQ NEEDS NO AWS IDENTITY",
+        needed is False,
+        f"requires_aws(groq) returned {needed!r}",
+    )
+
+
+def model17_the_groq_descriptor_names_what_answered():
+    """A run recorded against Groq must say so, and say which model."""
+    original = with_config(
+        {
+            "GROQ_API_KEY": "placeholder-not-real",
+            "GROQ_MODEL_ID": "configured-groq-id",
+        }
+    )
+    try:
+        _, descriptor = model_provider.build(
+            max_tokens=64, provider=model_provider.GROQ
+        )
+        resolved = model_provider.resolved_model_id(
+            model_provider.GROQ
+        )
+    finally:
+        restore(original)
+
+    check(
+        "MODEL17 THE GROQ DESCRIPTOR NAMES WHAT ANSWERED",
+        descriptor["provider"] == model_provider.GROQ
+        and descriptor["model_id"] == "configured-groq-id"
+        and resolved == "configured-groq-id",
+        f"descriptor={descriptor} resolved={resolved!r}",
+    )
+
+
+def model18_groq_is_contained_by_the_boundary():
+    """No module outside the adapter may depend on a Groq client.
+
+    The point of the provider boundary is that swapping inference does
+    not reach the domain. If a second module imported an OpenAI or Groq
+    client, or named the endpoint, the boundary would be false while
+    still appearing to work.
+
+    The tokens below are deliberately dependency-shaped rather than the
+    bare word. The first version of this check searched for "groq"
+    anywhere and failed on a comment in `pipeline.py` explaining why the
+    runner label is derived from the provider instead of hardcoded --
+    prose that exists precisely because the boundary is being respected.
+    A check that forbids naming the thing it protects tests vocabulary,
+    not architecture.
+    """
+    allowed = {
+        REPO_ROOT / "app/agent/model_provider.py",
+        REPO_ROOT / "app/config.py",
+    }
+
+    COUPLING = (
+        "import groq",
+        "from groq",
+        "import openai",
+        "from openai",
+        "api.groq.com",
+        "OpenAIModel(",
+    )
+
+    offenders = []
+
+    for folder in ("app", "scripts"):
+        for path in (REPO_ROOT / folder).rglob("*.py"):
+            if path in allowed or "__pycache__" in str(path):
+                continue
+
+            text = path.read_text(encoding="utf-8", errors="replace")
+
+            for token in COUPLING:
+                if token in text:
+                    offenders.append(
+                        f"{path.relative_to(REPO_ROOT)}: {token}"
+                    )
+
+    check(
+        "MODEL18 GROQ IS CONTAINED BY THE BOUNDARY",
+        not offenders,
+        f"leaked outside the adapter: {offenders}",
+    )
+
+
 CHECKS = (
     model01_bedrock_is_still_the_default,
     model02_historical_arguments_are_reproduced_exactly,
@@ -449,6 +629,12 @@ CHECKS = (
     model10_the_model_id_resolves_without_building_anything,
     model11_no_call_site_constructs_a_provider_directly,
     model12_the_run_record_names_the_provider,
+    model13_groq_refuses_without_a_key,
+    model14_the_groq_request_does_not_stream,
+    model15_parallel_tool_calls_is_explicitly_disabled,
+    model16_groq_needs_no_aws_identity,
+    model17_the_groq_descriptor_names_what_answered,
+    model18_groq_is_contained_by_the_boundary,
 )
 
 
