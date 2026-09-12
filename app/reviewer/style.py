@@ -733,6 +733,142 @@ textarea { min-height: 190px; }
 }
 
 .metric span { font-size: 12px; color: var(--muted); }
+
+/* ---- where Anika stopped --------------------------------------- */
+
+.stopped {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--wait);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 18px 22px 16px;
+  margin-bottom: 18px;
+}
+
+.stopped-eyebrow {
+  font-size: 11.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--wait);
+  margin: 0 0 8px;
+}
+
+.stopped-why p {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.stopped-why p:last-child { margin-bottom: 0; }
+
+.stopped-meta,
+.stopped-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+
+.quiet { font-size: 12.5px; color: var(--muted); }
+
+a.quiet { color: var(--accent); text-decoration: none; }
+a.quiet:hover { text-decoration: underline; }
+
+/* ---- the queue -------------------------------------------------- */
+
+.requests {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 940px;
+}
+
+.request {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 16px 20px;
+}
+
+.request-head,
+.request-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.request-head { margin-bottom: 10px; }
+.request-foot { margin-top: 12px; }
+
+.request-head .ref {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.request-head .ref:hover { color: var(--accent); }
+
+.request-why p {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.request-why p:last-child { margin-bottom: 0; }
+
+/* ---- one request, with the letter ------------------------------- */
+
+.request-detail { max-width: 760px; }
+
+.request-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.request-detail-head h1 {
+  margin: 4px 0 6px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.request-detail-head h1 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.request-detail-head h1 a:hover { color: var(--accent); }
+
+.request-detail-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.letter-text {
+  margin: 0;
+  padding: 18px 20px;
+  background: var(--sunk);
+  border: 1px solid var(--hair-soft);
+  border-radius: 6px;
+  font-family: SYSTEM_MONO_TOKEN;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
 """
 
 CSS = CSS.replace("SYSTEM_SANS_TOKEN", SYSTEM_SANS).replace(

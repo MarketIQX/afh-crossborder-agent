@@ -34,6 +34,7 @@ from app.domain import drafting
 from app.reviewer import (
     inbox,
     queries,
+    request_views,
     style,
     train_views,
     upload as upload_module,
@@ -290,8 +291,25 @@ been written yet.</div>""",
     )
 
 
-def _context(messages, revision, run, trace, draft, items, case_id):
+def _context(
+    messages,
+    revision,
+    run,
+    trace,
+    draft,
+    items,
+    case_id,
+    requests=(),
+):
     blocks = []
+
+    # Ahead of the enquiry and the trace. A reviewer opening a case
+    # needs to know whether anything is waiting on them before they
+    # read anything else, and this is the claim the product is making.
+    stopped = request_views.stopped_block(requests, case_id)
+
+    if stopped:
+        blocks.append(stopped)
 
     if messages:
         sender, subject, body_text, _r, _s, _m, _p = messages[0]
@@ -352,6 +370,7 @@ def _context(messages, revision, run, trace, draft, items, case_id):
 
 NAV = (
     ("/", "Inbox"),
+    ("/requests", "Requests"),
     ("/knowledge", "Knowledge"),
     ("/learning", "Learning"),
     ("/train", "Train Anika"),
@@ -515,6 +534,46 @@ def render_train(conn, people, reviewer_id, flash=None):
     )
 
 
+def render_requests(conn, people, reviewer_id, flash=None):
+    """The queue of things Anika could not answer."""
+    rows = queries.open_requests(conn)
+    body = request_views.requests_page(rows)
+
+    return page(
+        "Requests", body, people, reviewer_id, flash, nav="/requests"
+    )
+
+
+def render_request(conn, gap_id, people, reviewer_id, flash=None):
+    """One request, and the letter a professional would receive.
+
+    Returns None for an unknown id so the handler can answer 404 rather
+    than render a page about nothing.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT g.id::text, c.reference, c.id::text, g.reason_codes,
+                   g.gap_state, g.question, g.draft_body, g.created_at,
+                   g.resolved_at, r.display_name
+            FROM app.knowledge_gaps g
+            JOIN app.cases c ON c.id = g.case_id
+            LEFT JOIN app.reviewers r ON r.id = g.assigned_reviewer_id
+            WHERE g.id = %s
+            """,
+            (gap_id,),
+        )
+        row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    body = request_views.request_page(*row)
+
+    return page(
+        row[1], body, people, reviewer_id, flash, nav="/requests"
+    )
+
 def render_learning(conn, people, reviewer_id, flash=None):
     service_id, _label = active_service(conn)
 
@@ -568,7 +627,16 @@ def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     <div class="bar">{bar}</div>
   </div>
   <div class="context">
-    {_context(messages, revision, run, trace, draft, items, case_id)}
+    {_context(
+        messages,
+        revision,
+        run,
+        trace,
+        draft,
+        items,
+        case_id,
+        queries.requests_for_case(conn, case_id),
+    )}
   </div>
 </div>"""
 
@@ -644,6 +712,29 @@ class Handler(BaseHTTPRequestHandler):
                         200,
                         render_inbox(people, reviewer_id, items, flash),
                     )
+                    return
+
+                if path == "/requests":
+                    self._send(
+                        200,
+                        render_requests(conn, people, reviewer_id, flash),
+                    )
+                    return
+
+                if path.startswith("/request/"):
+                    rendered = render_request(
+                        conn,
+                        path[len("/request/") :],
+                        people,
+                        reviewer_id,
+                        flash,
+                    )
+
+                    if rendered is None:
+                        self._send(404, "no such request")
+                        return
+
+                    self._send(200, rendered)
                     return
 
                 if path == "/train":

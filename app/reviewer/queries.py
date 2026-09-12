@@ -253,3 +253,83 @@ def tool_calls(conn, run_id):
             (run_id,),
         )
         return cur.fetchall()
+
+
+# ---------------------------------------------------------------------
+# Requests for help.
+#
+# Every field below is stored. Nothing on the screen that says a gap is
+# open, assigned or answered is computed at render time from something
+# softer -- `gap_state` and `resolved_at` are constrained to agree in the
+# database, so a status shown here cannot disagree with the record.
+# ---------------------------------------------------------------------
+
+
+def open_requests(conn):
+    """What Anika could not answer, oldest first.
+
+    Oldest first on purpose: a queue that shows the newest request at
+    the top quietly buries the one that has been waiting longest, which
+    is the opposite of what a person triaging needs.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                g.id::text,
+                c.id::text,
+                c.reference,
+                g.reason_codes,
+                g.question,
+                g.created_at,
+                r.display_name,
+                g.draft_rendered_at IS NOT NULL AS has_draft,
+                v.decision_state
+            FROM app.knowledge_gaps g
+            JOIN app.cases c ON c.id = g.case_id
+            JOIN app.proposal_revisions v ON v.id = g.revision_id
+            LEFT JOIN app.reviewers r ON r.id = g.assigned_reviewer_id
+            WHERE g.gap_state = 'OPEN'
+            ORDER BY g.created_at
+            """
+        )
+        return cur.fetchall()
+
+
+def requests_for_case(conn, case_id):
+    """Every request raised on one case, including settled ones.
+
+    Settled requests are included because the history is the point: a
+    reviewer looking at a case should see what was asked before, not
+    only what is outstanding.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                g.id::text,
+                g.reason_codes,
+                g.question,
+                g.gap_state,
+                g.created_at,
+                g.resolved_at,
+                r.display_name,
+                g.draft_body
+            FROM app.knowledge_gaps g
+            LEFT JOIN app.reviewers r ON r.id = g.assigned_reviewer_id
+            WHERE g.case_id = %s
+            ORDER BY g.created_at DESC
+            """,
+            (case_id,),
+        )
+        return cur.fetchall()
+
+
+def request_counts(conn):
+    """Open requests, for the navigation. Zero is a real answer."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM app.knowledge_gaps "
+            "WHERE gap_state = 'OPEN'"
+        )
+        return cur.fetchone()[0]

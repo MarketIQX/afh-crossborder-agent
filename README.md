@@ -168,7 +168,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-180 checks across twelve suites. Every one names what it proves, and the
+188 checks across thirteen suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -188,6 +188,7 @@ Individual suites:
     tests/model_provider_smoke.py                MODEL01-MODEL18
     tests/gap_smoke.py                           GAP01-GAP09
     tests/guard_wiring_smoke.py                  WIRE01-WIRE09
+    tests/request_surface_smoke.py               REQ01-REQ08
     tests/db_integrity_smoke.py phase1           DB01-DB10
     tests/authority_boundary_smoke.py phase1     AUTH01-AUTH24
     tests/agent_slice_smoke.py phase1            AGENT01-AGENT29
@@ -201,7 +202,8 @@ The claims in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are checked here too:
 one states a total the suites do not define.
 
 `env_contract_smoke.py`, `applicability_smoke.py`, `model_provider_smoke.py`,
-`gap_smoke.py` and `guard_wiring_smoke.py` need no database and no credentials.
+`gap_smoke.py`, `guard_wiring_smoke.py` and `request_surface_smoke.py` need
+no database and no credentials.
 
 The first checks this repository's own claims: that `.env.example` matches the declared
 contract, that every setting the code reads is declared, that no real

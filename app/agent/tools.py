@@ -401,6 +401,7 @@ class AgentTools:
 
         refs = json.dumps(list(evidence_refs or []), default=str)
         written = []
+        already = []
 
         for item in facts:
             predicate = str(item.get("predicate", "")).strip()
@@ -415,6 +416,12 @@ class AgentTools:
             value = item.get("value")
             fact_id = str(uuid.uuid4())
 
+            # Idempotent across runs, which contract section 7 requires
+            # by name. An identical restatement of a fact already
+            # proposed on this case is absorbed by the partial unique
+            # index from migration 026; a different value is a new row,
+            # because that is new information and possibly a
+            # contradiction a person should see.
             with self._conn.cursor() as cur:
                 cur.execute(
                     """
@@ -422,6 +429,8 @@ class AgentTools:
                         id, case_id, predicate, value_text, origin,
                         evidence_refs, run_id
                     ) VALUES (%s, %s, %s, %s, 'AGENT_PROPOSED', %s, %s)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id::text
                     """,
                     (
                         fact_id,
@@ -432,16 +441,33 @@ class AgentTools:
                         self._binding.run_id,
                     ),
                 )
+                row = cur.fetchone()
 
-            written.append({"fact_id": fact_id, "predicate": predicate})
+            if row is None:
+                # Already on the case, unchanged. Reported rather than
+                # counted as a write, so the model is told the truth and
+                # the trace does not claim an insert that never happened.
+                already.append(predicate)
+            else:
+                written.append(
+                    {"fact_id": row[0], "predicate": predicate}
+                )
 
         self._trace.record(
             "record_proposed_facts",
             arguments,
-            {"written": written, "status": "PROPOSED"},
+            {
+                "written": written,
+                "already_recorded": already,
+                "status": "PROPOSED",
+            },
         )
 
-        return {"recorded": written, "status": "PROPOSED"}
+        return {
+            "recorded": written,
+            "already_recorded": already,
+            "status": "PROPOSED",
+        }
 
     # -- tool 4 ---------------------------------------------------------
 
