@@ -174,6 +174,17 @@ Stated because leaving it out would overclaim.
 - **A reviewer can confirm a fact, through the database only.** That grant
   was absent until now, which made a supported answer unreachable on any
   input. The console route to do it from the interface does not exist yet.
+- **The applicability field means less than tax applicability.** A `TRUE`
+  verdict currently makes a rule a citable basis, which is sufficiency
+  semantics. A professional review refused to tag the deemed-residency rule
+  because Indian citizenship is necessary but not sufficient under the
+  Income-tax Act 2025 — the rule also turns on an income threshold and on
+  non-liability to tax elsewhere. That rule is deliberately untagged rather
+  than half-encoded. Exclusion and asking are sound; only admission
+  overclaims.
+- **Rules are dated by publication, not by statutory force, and the
+  material date is the enquiry date rather than the tax year.** The temporal
+  mechanism exists and is wired to the wrong dates.
 - Two applicability dimensions, exact-match vocabulary. Treaty country,
   income type and entity type have no expression.
 - One corridor in scope. Anything outside it is refused honestly and

@@ -348,6 +348,45 @@ architecture. A safe result produced while the model is assumed to be wrong is.
   `SUPPORTED_WITHIN_POLICY` was unreachable on any input rather than merely
   unobserved. **The console route does not exist yet**, so a reviewer cannot do
   this from the interface: the capability is real, the interface is not.
+- **The applicability field means less than tax applicability, and the
+  code reads it as meaning more.** Traced: `A(u,c)=TRUE` and `V(u)` put a
+  unit into `usable`, which becomes `approved_unit_ids`, which is what
+  `citations_for(SUPPORTED_WITHIN_POLICY)` returns. So a `TRUE` verdict makes
+  a rule a **recorded basis** for a supported answer — sufficiency
+  semantics, not a necessary-condition filter. A professional review of the
+  five signed units refused to tag the deemed-residency rule for exactly this
+  reason: Indian citizenship is necessary but not sufficient. Under the
+  Income-tax Act 2025 that rule also requires total income above
+  ₹15 lakh excluding foreign-source income, non-liability to tax
+  elsewhere by domicile or residence, and non-residence under the ordinary
+  tests. Encoding `citizenship = INDIAN` alone would state a compound legal
+  rule as though one predicate settled it. **The rule is deliberately
+  untagged** pending a decision on how compound predicates are represented.
+  Note the asymmetry: `FALSE` (exclusion) and `UNKNOWN` (asking for the
+  fact) are both sound as necessary-condition behaviour. Only `TRUE`
+  overclaims.
+- **Signed rules are dated by publication, not by statutory force.** All
+  five professionally verified units carry `effective_from = 2026-09-11`,
+  the day they were published, because `accept_and_publish` hardcodes
+  `current_date`. Retrieval filters `effective_from <= material_date`, so
+  this decides which body of law is reachable.
+- **`material_date` is the enquiry date, not the tax year in question.** It
+  is derived from `enquiry.received_at`. A client asking about FY 2025-26
+  is answered from rules in force on the day their email arrived. The
+  Income-tax Act 2025 governs tax years beginning on or after 1 April 2026
+  while FY 2025-26 falls under the 1961 Act, so those are different bodies
+  of law. The temporal mechanism exists and is wired to the wrong two
+  dates; this is a mis-wiring, not a missing feature, and it is arguably
+  more consequential than adding a further demographic dimension.
+- **Two signed units have not had a content-completeness review.** The
+  basic residency test and the RNOR test are correct as far as they go and
+  appear to omit statutory alternatives — the 120-day limb for visiting
+  Indian citizens and persons of Indian origin above the income threshold,
+  the employment and crew exceptions, and the additional RNOR routes
+  including deemed residents. This is a question about the content of the
+  knowledge, not about its applicability tagging, and it must not be
+  silently fixed while deciding tagging. A fact can be legally correct
+  while a conclusion drawn from it is still incomplete.
 - **Two dimensions, exact match.** Residency and citizenship are the corridor
   this build demonstrates. Treaty country, income type and age have no
   expression at all. The vocabulary matches whole normalised strings and
