@@ -240,7 +240,11 @@ SUITE_CLAIM = re.compile(
 # Documents that claim to describe the build as it is now. BUILD_STATE is
 # deliberately absent: it is a log, and its older sections rightly record
 # the totals that were true when they were written.
-CURRENT_DOCUMENTS = ("README.md", "docs/ARCHITECTURE.md")
+CURRENT_DOCUMENTS = (
+    "README.md",
+    "docs/ARCHITECTURE.md",
+    "docs/SUBMISSION.md",
+)
 
 
 def counted_check_total():
