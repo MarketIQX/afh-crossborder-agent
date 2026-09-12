@@ -47,6 +47,67 @@ constraint.
 Retrieval sits in the middle, where it belongs. It is how the agent finds the
 right guidance, never the authority on whether that guidance may be used.
 
+```mermaid
+flowchart TB
+    MAIL(["client enquiry arrives by email"])
+
+    subgraph L1["LAYER 01 - deterministic: what the model may know"]
+        IDENT["identity gate<br/>refuses root and any<br/>unconfigured principal"]
+        ROUTE{"router<br/>does one service dominate?"}
+        CTXA["bounded context assembly<br/>refuses rather than drop<br/>scope, dates or facts"]
+        RETR["retrieval<br/>active-release view, dated<br/>topic match + ranked text"]
+    end
+
+    HT(["human triage"])
+
+    subgraph L2["LAYER 02 - probabilistic: the only inferring layer"]
+        CLAUDE["Claude Sonnet 4.5 on Bedrock<br/>four tools, seven calls each<br/>skills loaded on demand"]
+    end
+
+    subgraph L3["LAYER 03 - deterministic: what the model may claim"]
+        APPL{"applicability of each unit<br/>TRUE / FALSE / UNKNOWN"}
+        EVID["admissible evidence<br/>applicable AND signed"]
+        VALID{"is the proposed state<br/>one the evidence permits?"}
+        COPY{"copy guards<br/>machine words? statute?"}
+    end
+
+    subgraph L4["LAYER 04 - human: the only layer that can say yes"]
+        REV{"reviewer decides"}
+    end
+
+    OUT(["letter sent to the client"])
+    ESC(["escalated to a professional"])
+    ASK(["question put to the client"])
+    REF(["refused, and recorded"])
+
+    MAIL --> IDENT --> ROUTE
+    ROUTE -- "yes" --> CTXA
+    ROUTE -- "straddle or no match" --> HT
+    CTXA --> RETR --> CLAUDE
+    CLAUDE -- "proposes one state<br/>and the client copy" --> APPL
+
+    APPL -- "FALSE: the rule is<br/>about someone else" --> ESC
+    APPL -- "UNKNOWN: turns on an<br/>unestablished fact" --> ASK
+    APPL -- "TRUE" --> EVID
+
+    EVID --> VALID
+    VALID -- "outside the permitted set" --> REF
+    VALID -- "permitted" --> COPY
+    COPY -- "found" --> REF
+    COPY -- "clean" --> REV
+
+    REV -- "approve, digest rechecked<br/>at dispatch" --> OUT
+    REV -- "edit, attributed to<br/>the reviewer" --> OUT
+    REV -- "reject with a reason" --> REF
+```
+
+Read it for the edges that do not reach the client. Three of the four
+layers can only ever narrow what happens next, and the one that infers
+sits in the middle with a deterministic layer on each side: the model
+chooses, from a set it did not decide, and writes words a later layer can
+refuse. `LAYER 04` is the only place a yes can originate.
+
+
 ### 01 — Deterministic, before: what the model may know
 
 | | |
