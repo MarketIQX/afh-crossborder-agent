@@ -25,9 +25,18 @@ first:
 Scope, conflict and coverage are checked before missing client facts on
 purpose: there is no point asking a client for information when we
 already know we will not, or cannot, advise on the question.
+
+Applicability is evaluated before any of them. A rule can be true,
+verified, on topic and in date and still be about a class of person the
+client is not; admitting it as evidence and only then checking its
+provenance gets the order backwards. So the evidence set is narrowed to
+the client first, and what survives is what the states below are
+computed from.
 """
 
 from dataclasses import dataclass
+
+from app.domain import applicability
 
 DECISION_RULES_VERSION = "decision-rules-v1"
 
@@ -70,6 +79,15 @@ class Evaluation:
     knowledge_release_id: str | None
     rationale: tuple
     system_failure_reason: str | None
+
+    # Applicability, recorded rather than merely applied. A reviewer
+    # seeing MISSING_KNOWLEDGE deserves to know whether we hold nothing
+    # on the topic or hold something that does not apply here.
+    excluded_unit_ids: tuple = ()
+    unknown_unit_ids: tuple = ()
+    applicability_unresolved: tuple = ()
+    applicability_unreadable: tuple = ()
+    case_attributes: dict = None
 
     rules_version: str = DECISION_RULES_VERSION
 
@@ -125,31 +143,77 @@ def evaluate(context, units, conflicts, failure_reason=None):
     in_scope = context.in_scope_topics
     out_of_scope = context.out_of_scope_topics
 
+    # Applicability first, and three-valued. Computed by the same
+    # function the knowledge tool calls, so what the model was shown
+    # and what this layer will accept cannot drift apart.
+    assessment = applicability.assess(units, context.confirmed_facts)
+
     # The approved-guidance bar. An ACTIVE release is not
     # the same as approved knowledge: a unit counts here
     # only once a qualified professional has verified it.
-    approved = tuple(
-        unit for unit in units if unit.professionally_verified
-    )
+    # `usable` has already had inapplicable units removed.
+    approved = assessment.usable
     approved_ids = tuple(unit.unit_id for unit in approved)
 
-    covered = {unit.topic for unit in approved}
-    gaps = tuple(topic for topic in in_scope if topic not in covered)
+    gaps = tuple(
+        topic
+        for topic in in_scope
+        if topic not in assessment.covered_topics
+    )
 
     provisional_topics = tuple(
         sorted(
             {
                 unit.topic
-                for unit in units
+                for unit in assessment.partition.applicable
+                + assessment.partition.unknown
                 if not unit.professionally_verified
                 and unit.topic in gaps
             }
         )
     )
 
-    missing_facts = context.missing_material_predicates
+    # UNKNOWN applicability becomes a question, not a silent exclusion.
+    # Dropping a resident-rule because residency is unestablished would
+    # conceal the fact that residency is exactly what needs
+    # establishing; adding the predicate here makes the system ask.
+    missing_facts = tuple(
+        sorted(
+            set(context.missing_material_predicates)
+            | set(assessment.unresolved_predicates)
+        )
+    )
 
     blocked = False
+
+    if assessment.excluded:
+        rationale.append(
+            f"{len(assessment.excluded)} retrieved unit(s) do not apply "
+            f"to this client and were excluded on: "
+            f"{', '.join(assessment.excluded_on)}"
+        )
+
+    if assessment.unresolved_predicates:
+        rationale.append(
+            f"applicability of retrieved guidance cannot be determined "
+            f"until these are established: "
+            f"{', '.join(assessment.unresolved_predicates)}"
+        )
+
+    if assessment.unreadable_predicates:
+        # Established, and unreadable to us. Asking again would be
+        # asking a reviewer to repeat themselves in words we never told
+        # them we needed, so this goes to a professional instead. It is
+        # deliberately not added to the missing facts: a predicate
+        # already answered is never put to the client twice.
+        permitted.add(MISSING_KNOWLEDGE)
+        rationale.append(
+            f"confirmed but recorded in wording the applicability "
+            f"vocabulary cannot read, so a professional must restate it "
+            f"or the vocabulary must be extended: "
+            f"{', '.join(assessment.unreadable_predicates)}"
+        )
+        blocked = True
 
     if context.is_unroutable:
         permitted.add(OUT_OF_SCOPE)
@@ -231,6 +295,15 @@ def evaluate(context, units, conflicts, failure_reason=None):
         knowledge_release_id=context.knowledge_release_id,
         rationale=tuple(rationale),
         system_failure_reason=None,
+        excluded_unit_ids=tuple(
+            unit.unit_id for unit in assessment.excluded
+        ),
+        unknown_unit_ids=tuple(
+            unit.unit_id for unit in assessment.unknown
+        ),
+        applicability_unresolved=assessment.unresolved_predicates,
+        applicability_unreadable=assessment.unreadable_predicates,
+        case_attributes=dict(assessment.attributes),
     )
 
 

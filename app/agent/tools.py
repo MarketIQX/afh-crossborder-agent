@@ -24,7 +24,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 
-from app.domain import decision, knowledge
+from app.domain import applicability, decision, knowledge
 from app.domain.context import tokenize
 
 TOOL_SCHEMA_VERSION = "tool-schema-v1"
@@ -235,31 +235,56 @@ class AgentTools:
                 cur, [unit.unit_id for unit in units]
             )
 
-        approved_units = knowledge.approved(units)
+        # Applicability, from the same function the decision layer
+        # calls. If this tool and that layer disagreed about what
+        # applies, the validator would see less than the model did,
+        # which is the wrong direction for a guard to be wrong in.
+        assessment = applicability.assess(
+            units, self._context.confirmed_facts
+        )
+
+        approved_units = assessment.usable
+        admissible = (
+            assessment.partition.applicable + assessment.partition.unknown
+        )
 
         how_found = {}
 
         for value in matched_by.values():
             how_found[value] = how_found.get(value, 0) + 1
-        gaps = knowledge.coverage_gaps(approved_units, topics)
+
+        # A topic an UNKNOWN unit might yet cover is not a gap; a topic
+        # whose only guidance was excluded is.
+        gaps = tuple(
+            topic
+            for topic in topics
+            if topic not in assessment.covered_topics
+        )
         provisional = tuple(
             sorted(
                 {
                     unit.topic
-                    for unit in units
+                    for unit in admissible
                     if not unit.professionally_verified
                     and unit.topic in gaps
                 }
             )
         )
 
-        # `units` holds only what an answer may rest on. Anything not
-        # professionally verified is reported separately, so it cannot
-        # be read as usable guidance by a model working through an
-        # array it was told to reason from.
+        # Four disjoint buckets. `units` holds only what an answer may
+        # rest on: verified, and applicable to this client. Everything
+        # else is reported separately with the reason it cannot be
+        # used, so nothing reaches the model as usable guidance by
+        # sitting in an array it was told to reason from.
         unverified = [
-            unit for unit in units if not unit.professionally_verified
+            unit for unit in admissible
+            if not unit.professionally_verified
         ]
+        unknown_applicability = [
+            unit for unit in assessment.partition.unknown
+            if unit.professionally_verified
+        ]
+        not_applicable = list(assessment.excluded)
 
         result = {
             "knowledge_release_id": release_id,
@@ -294,6 +319,47 @@ class AgentTools:
                     for unit in unverified
                 ],
             },
+            "applicability_unknown": {
+                "note": (
+                    "These are verified, but whether they apply to this "
+                    "client turns on a fact nobody has established yet. "
+                    "They may NOT be used to support a conclusion. Ask "
+                    "for the facts named in needed_to_resolve instead. "
+                    "Citing one is refused by the server."
+                ),
+                "needed_to_resolve": list(
+                    assessment.unresolved_predicates
+                ),
+                "count": len(unknown_applicability),
+                "units": [
+                    {
+                        **unit.citation(),
+                        "statement": unit.statement,
+                    }
+                    for unit in unknown_applicability
+                ],
+            },
+            "not_applicable": {
+                "note": (
+                    "These are about a class of person this client is "
+                    "established not to be. They may be true and still "
+                    "have nothing to do with this enquiry, so they may "
+                    "NOT be used, quoted or paraphrased. They are shown "
+                    "only so you do not report that nothing was found."
+                ),
+                "excluded_on": list(assessment.excluded_on),
+                "count": len(not_applicable),
+                "units": [
+                    {
+                        **unit.citation(),
+                        "statement": unit.statement,
+                    }
+                    for unit in not_applicable
+                ],
+            },
+            "client_attributes_established": dict(
+                assessment.attributes
+            ),
             "coverage_gaps": list(gaps),
             "provisional_topics": list(provisional),
             "conflicts": list(conflicts),
@@ -306,6 +372,8 @@ class AgentTools:
                 "units": len(approved_units),
                 "unit_ids": [unit.unit_id for unit in approved_units],
                 "consulted_unverified": len(unverified),
+                "applicability_unknown": len(unknown_applicability),
+                "not_applicable": len(not_applicable),
                 "coverage_gaps": result["coverage_gaps"],
             },
         )

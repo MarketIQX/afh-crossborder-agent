@@ -109,6 +109,24 @@ class CaseContext:
     def is_unroutable(self):
         return not self.topic_matches
 
+    @property
+    def confirmed_facts(self):
+        """Predicate to value, from CONFIRMED rows only.
+
+        Applicability rests on this. A fact the agent proposed is not
+        an established fact, by the same rule that governs every other
+        fact here, so a rule can never be judged applicable on the
+        strength of something the model asserted about the client.
+
+        Facts arrive ordered by predicate then creation time, so where a
+        predicate was confirmed more than once the latest value stands.
+        """
+        return {
+            fact.predicate: fact.value_text
+            for fact in self.facts
+            if fact.status == "CONFIRMED"
+        }
+
     def to_payload(self):
         """The exact structure handed to the model."""
         return {

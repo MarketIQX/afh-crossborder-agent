@@ -524,18 +524,147 @@ path, all of which had been assigning a service scope anonymously with
 nothing objecting. `assign_service` and the fixtures now record `HUMAN`.
 Breaking them was the point.
 
+## M9: a rule that is true can still not be yours
+
+This one was found by a test designed to fail, and it did.
+
+The probe drove `decision.evaluate` directly, with no model anywhere in
+it. A rule about RESIDENT individuals, professionally verified, on
+topic, effective on the material date. A client established as a
+NON-RESIDENT. Every gate unrelated to applicability deliberately
+satisfied: routable, in scope, active release, no declared conflict, no
+missing facts.
+
+The layer permitted `SUPPORTED_WITHIN_POLICY`. It offered that rule as
+the basis of the answer. It recorded
+`requires_professional_verification = false`. Its rationale was "in
+scope, material facts confirmed, effective guidance retrieved, no
+declared conflict". Every clause of that sentence was true and the
+conclusion was wrong.
+
+The reason matters more than the result. This was not a check somebody
+forgot to write. `evaluate` read five fields off the context, and not
+one of them was an attribute of the client, so there was no field in
+which applicability could be expressed at all. A reviewer auditing the
+rules would have found nothing missing, because the vocabulary had no
+word for the thing that was wrong.
+
+### Three values, and the third is the point
+
+    TRUE     the rule's conditions match what is established
+    FALSE    they contradict it
+    UNKNOWN  the rule turns on something nobody has established
+
+A boolean has to fold UNKNOWN into one of the others and both choices
+are wrong. TRUE admits a rule that may not apply. FALSE removes
+evidence silently and hides the reason: if residency is unestablished,
+dropping every resident-rule conceals the fact that residency is
+exactly what needs establishing, and reports a corpus gap where there
+is none. So UNKNOWN becomes a question to the client, and the state is
+`MISSING_FACTS` rather than `MISSING_KNOWLEDGE`, because what is
+missing is a fact.
+
+Applicability runs before verification and coverage, not after. A rule
+can be true, signed, on topic and in date and still be about somebody
+else; admitting it as evidence and then checking its provenance gets
+the order backwards.
+
+`applicability.assess` is called by both the knowledge tool and the
+decision layer. That is deliberate and it is a repeat fix: these two
+once disagreed about what had been retrieved, and the validator saw
+less than the model did, which is the wrong direction for a guard to be
+wrong in. The tool now hands over four disjoint buckets -- usable,
+unverified, unknown-applicability, not-applicable -- because a model
+reading the same statement twice under two different instructions will
+follow whichever it read last.
+
+### Two things the build got wrong on the way
+
+Migration 019 first registered `residency_status` and
+`citizenship_status` as material facts, which demands both on every case
+before anything can be answered. That is wrong twice. It makes the
+three-valued logic decorative, because `MISSING_FACTS` would fire
+whether or not any retrieved rule turned on residency. And it asks a
+client filing a straightforward return for their residential status
+before answering a question that does not depend on it. "Always ask" is
+not caution, it is a refusal to reason about what the question needs.
+Migration 020 makes the demand conditional: only a verified rule whose
+applicability actually turns on the fact raises it.
+
+The second was a loop. A reviewer confirms `residency_status` as "Non
+Resident Indian"; the vocabulary has no exact entry for that wording, so
+the attribute is unset, so a resident-rule is UNKNOWN, so the predicate
+becomes a missing fact, so the next draft asks the client a question
+they have already answered -- and the reviewer watches the system ignore
+them with no explanation. Unestablished and unreadable are different
+failures. The first is a question for the client. The second is ours, so
+it escalates to a professional and drafts nothing. Substring matching
+would have hidden it and been worse: "non-resident" contains
+"resident", and a system that guessed would answer confidently from the
+wrong half of the law.
+
+### What the checks are worth
+
+`APPLY01-APPLY14` run the deterministic layer with no model and no
+database. That is the point of them. A safe result produced by Claude is
+not evidence of a safe architecture; a safe result produced while Claude
+is assumed to be wrong is.
+
+They were then checked for being decoration. With the gate removed at
+runtime -- `assess` replaced by the behaviour the code had before
+applicability existed -- five of them fail, including every check that
+exists because of the original defect. A check that passes with the fix
+and would have passed without it defends nothing.
+
+That left one hole worth naming, because it is the same mistake this
+build has made before in other costumes: every one of those fourteen
+checks constructs its units in Python. A wrong row index in either
+retrieval query would leave every unit reading NULL, every unit
+unrestricted, every unit applicable to everyone -- and all fourteen
+would still pass while the gate stood wide open. `AGENT28` reads a
+stored restriction back through both retrieval paths, which have
+different select lists and different row offsets, and then requires it
+to exclude for a non-resident and not exclude for a resident.
+Exclusion that happens either way proves nothing.
+
+Three attempts at that fixture were refused by the database before one
+was accepted: a professional claim must name the reviewer who signed it,
+and any verification claim needs the captured passage and digest that
+would let a reviewer check it. The refusals were right and the test was
+wrong each time. The probe now asserts no evidence it does not have.
+
+### What this does not yet do
+
+Nothing in the live corpus carries a restriction. Twelve units, five
+professionally verified, and `applies_to_residency` and
+`applies_to_citizenship` are NULL on every one of them, which means
+every unit is unrestricted, which means applicable to everyone. The gate
+is enforced, proven and currently inert on real data.
+
+That is honest rather than reassuring. The mechanism is the hard part
+and it is done; what remains is a control in the reviewer console so
+that setting applicability is part of signing a unit off, rather than a
+column somebody has to remember.
+
 ### State
 
-116 checks across eight suites, passing from a clean slate.
-`AUTO01-AUTO09` are new.
+137 checks across nine suites, passing from a clean slate.
+`APPLY01-APPLY14` and `AGENT28` are new.
+
+Sections above this one are a log and describe the state at the time
+they were written. This block is the only part that claims to be
+current.
 
 Still not built, and next:
 
-- **The dashboard.** There is still one screen showing one matter,
-  reached by URL. No queue, no drafts view, no knowledge view, no
-  learning view. This is the largest remaining gap and it sits on the
-  Design criterion.
-- **Drafting inside the loop.** The cycle reports a `drafted` count that
-  is always zero, because composing is still triggered from the console.
-- **Real dispatch.** Still `SimulatedProvider` in the console.
-- **The teaching loop.** Not started.
+- **Applicability at sign-off.** The reviewer console has no control for
+  it, so the gate cannot yet change a real answer.
+- **Granularity.** All five signed units bundle several propositions
+  each. The unit is the wrong atom; the proposition is. This limits how
+  precisely anything can be cited, restricted or superseded.
+- **Submission artifacts.** The demo video, the Devpost description and
+  the builder.aws.com post. Each is mandatory or scored and none exists.
+
+Deliberately not being built: embeddings, GraphRAG, AgentCore,
+per-department agents, authentication. Each was considered and each
+would cost more than it returns before the deadline.

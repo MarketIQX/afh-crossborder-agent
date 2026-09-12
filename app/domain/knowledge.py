@@ -41,6 +41,11 @@ class KnowledgeUnit:
     effective_to: date | None
     scope_tags: tuple
 
+    # NULL means the rule does not narrow itself on that dimension, so
+    # it applies unless something else excludes it.
+    applies_to_residency: str | None = None
+    applies_to_citizenship: str | None = None
+
     @property
     def professionally_verified(self):
         return self.verification_status == "PROFESSIONALLY_VERIFIED"
@@ -101,7 +106,9 @@ def retrieve(cur, release_id, topics, material_date):
                 u.verification_status,
                 u.effective_from,
                 u.effective_to,
-                u.scope_tags
+                u.scope_tags,
+                u.applies_to_residency,
+                u.applies_to_citizenship
             FROM app.active_knowledge_units u
             WHERE u.release_id = %s
               AND u.topic = ANY(%s)
@@ -128,6 +135,8 @@ def retrieve(cur, release_id, topics, material_date):
             effective_from=row[6],
             effective_to=row[7],
             scope_tags=tuple(row[8] or ()),
+            applies_to_residency=row[9],
+            applies_to_citizenship=row[10],
         )
         for row in rows
     )
@@ -219,6 +228,8 @@ def retrieve_by_query(cur, release_id, topics, query, material_date):
             u.effective_from,
             u.effective_to,
             u.scope_tags,
+            u.applies_to_residency,
+            u.applies_to_citizenship,
             ts_rank(u.searchable, to_tsquery('english', %s))
                 AS rank
         FROM app.active_knowledge_units u
@@ -234,7 +245,7 @@ def retrieve_by_query(cur, release_id, topics, query, material_date):
     )
 
     for row in cur.fetchall():
-        rank = row[9]
+        rank = row[11]
 
         if rank is not None and rank < MIN_TEXT_RANK:
             continue
@@ -255,6 +266,8 @@ def retrieve_by_query(cur, release_id, topics, query, material_date):
             effective_from=row[6],
             effective_to=row[7],
             scope_tags=tuple(row[8] or ()),
+            applies_to_residency=row[9],
+            applies_to_citizenship=row[10],
         )
         matched_by[unit_id] = "text"
 

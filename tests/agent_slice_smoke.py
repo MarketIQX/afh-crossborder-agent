@@ -1096,6 +1096,128 @@ def agent19_strands_registers_only_intended_tools():
     )
 
 
+def agent28_applicability_columns_survive_retrieval():
+    """The stored restriction must reach the decision layer, not just exist.
+
+    Two retrieval paths, two select lists, two sets of row offsets. A
+    single wrong index would make every unit unrestricted, and every
+    applicability check in tests/applicability_smoke.py would still pass
+    because those build their units in Python. This reads the value back
+    out of Postgres and then makes it do its job.
+
+    The probe claims no verification, deliberately. The first version of
+    this check inserted it as PROFESSIONALLY_VERIFIED and the database
+    refused: a professional claim must name the reviewer who signed it.
+    The second tried SOURCE_VERIFIED and was refused again, because any
+    verification claim requires the captured passage and digest that
+    would let a reviewer check it. Both refusals were correct and the
+    test was wrong. Exclusion does not depend on verification, so the
+    probe asserts no evidence it does not have.
+    """
+    from app.domain import applicability
+
+    probe = "39000000-0000-0000-0000-0000000000a1"
+    statement = (
+        "A resident and ordinarily resident individual is liable to "
+        "Indian tax on global income wherever earned."
+    )
+
+    with admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app.knowledge_units (
+                    id, release_id, unit_key, topic, statement,
+                    source_locator, verification_status, effective_from,
+                    applies_to_residency
+                ) VALUES (
+                    %s, %s, 'agent28_probe', 'tax_residency', %s,
+                    'AGENT28 probe, not a real source',
+                    'UNVERIFIED', DATE '2020-04-01',
+                    'RESIDENT'
+                )
+                """,
+                (probe, ACTIVE_RELEASE, statement),
+            )
+        conn.commit()
+
+    try:
+        with app_conn() as conn:
+            with conn.cursor() as cur:
+                by_topic = knowledge.retrieve(
+                    cur,
+                    ACTIVE_RELEASE,
+                    ("tax_residency",),
+                    date(2026, 6, 15),
+                )
+                by_text, _matched = knowledge.retrieve_by_query(
+                    cur,
+                    ACTIVE_RELEASE,
+                    (),
+                    "liable to Indian tax on global income wherever earned",
+                    date(2026, 6, 15),
+                )
+
+        found = {}
+
+        for label, units in (("topic", by_topic), ("text", by_text)):
+            hit = [u for u in units if u.unit_id == probe]
+
+            if not hit:
+                raise RuntimeError(
+                    f"AGENT28 FAIL: the {label} path did not retrieve the "
+                    f"probe unit, so the column was never read"
+                )
+
+            found[label] = hit[0].applies_to_residency
+
+        wrong = {
+            label: value
+            for label, value in found.items()
+            if value != "RESIDENT"
+        }
+
+        if wrong:
+            raise RuntimeError(
+                f"AGENT28 FAIL: applies_to_residency did not survive "
+                f"retrieval: {wrong}. Every applicability check would "
+                f"still pass with the gate wide open."
+            )
+
+        # And it must discriminate, not merely exclude. A function
+        # that returned FALSE unconditionally would pass a check that
+        # only looked at the non-resident case.
+        for wording, should_exclude in (
+            ("non-resident", True),
+            ("resident", False),
+        ):
+            assessment = applicability.assess(
+                by_text, {"residency_status": wording}
+            )
+            excluded = [u.unit_id for u in assessment.excluded]
+
+            if (probe in excluded) is not should_exclude:
+                raise RuntimeError(
+                    f"AGENT28 FAIL: with residency_status={wording!r} the "
+                    f"stored restriction "
+                    f"{'did not exclude' if should_exclude else 'excluded'}"
+                    f" the unit; excluded {excluded}"
+                )
+    finally:
+        with admin_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM app.knowledge_units WHERE id = %s",
+                    (probe,),
+                )
+            conn.commit()
+
+    print(
+        "AGENT28 APPLICABILITY COLUMNS SURVIVE RETRIEVAL: PASS "
+        f"(topic={found['topic']}, text={found['text']}, excluded)"
+    )
+
+
 def agent20_fixture_digests_match_their_passages():
     """A stored digest must match its captured passage.
 
@@ -1340,6 +1462,7 @@ def phase1():
     agent25_steering_refuses_machine_words_to_a_client()
     agent26_steering_requires_retrieval_before_support()
     agent27_unverified_guidance_is_never_usable()
+    agent28_applicability_columns_survive_retrieval()
     agent20_fixture_digests_match_their_passages()
     agent21_simulated_fixture_cannot_reach_the_application()
     agent22_identity_gate_cannot_be_bypassed()

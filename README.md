@@ -162,7 +162,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-122 checks across eight suites. Every one names what it proves, and the
+137 checks across nine suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -178,20 +178,33 @@ Run everything against your own instance:
 Individual suites:
 
     tests/env_contract_smoke.py                  ENV01-ENV08
+    tests/applicability_smoke.py                 APPLY01-APPLY14
     tests/db_integrity_smoke.py phase1           DB01-DB10
     tests/authority_boundary_smoke.py phase1     AUTH01-AUTH21
-    tests/agent_slice_smoke.py phase1            AGENT01-AGENT27
+    tests/agent_slice_smoke.py phase1            AGENT01-AGENT28
     tests/ingestion_smoke.py phase1              INGEST01-INGEST14
     tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
     tests/autonomy_smoke.py phase1               AUTO01-AUTO10
     tests/approval_dispatch_smoke.py phase1      APPROVE01-APPROVE20
 
-`env_contract_smoke.py` needs no database and no credentials. It checks
-this repository's own claims: that `.env.example` matches the declared
+`env_contract_smoke.py` and `applicability_smoke.py` need no database and
+no credentials.
+
+The first checks this repository's own claims: that `.env.example` matches the declared
 contract, that every setting the code reads is declared, that no real
 account id or usable secret appears in the example, and that the file
 names and check ranges printed above are true. Those statements were all
 false at one point, and nothing caught it, so now something does.
+
+The second runs the deterministic decision layer with no model and no
+database, and asks whether a rule that is true, verified, on topic and in
+date can support an answer to a client it is not about. It could: the
+layer authorised a supported answer for a non-resident resting on a
+verified rule about residents, and gave as its reason "in scope, material
+facts confirmed, effective guidance retrieved, no declared conflict". Every
+clause true, conclusion wrong. Applicability is now three-valued, and the
+third value is the point: an unestablished condition becomes a question
+to the client rather than a rule quietly dropped from the evidence.
 
 ## Running it
 
