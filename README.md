@@ -7,6 +7,12 @@ human judgment is genuinely required.
 
 Built for the AWS Agents for Humans Hackathon on the Strands Agents SDK.
 
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the shortest route to what
+matters here:** the four layers, the algebra that decides what may honestly be
+claimed, the privilege boundaries read from the live catalogue, and an explicit
+list of what is proven versus what is merely built. It also names the failure
+the architecture was reshaped around.
+
 ## The problem
 
 Migration creates a permanent, low-grade compliance burden. Someone who
@@ -162,7 +168,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-137 checks across nine suites. Every one names what it proves, and the
+138 checks across nine suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -177,7 +183,7 @@ Run everything against your own instance:
 
 Individual suites:
 
-    tests/env_contract_smoke.py                  ENV01-ENV08
+    tests/env_contract_smoke.py                  ENV01-ENV09
     tests/applicability_smoke.py                 APPLY01-APPLY14
     tests/db_integrity_smoke.py phase1           DB01-DB10
     tests/authority_boundary_smoke.py phase1     AUTH01-AUTH21
@@ -186,6 +192,10 @@ Individual suites:
     tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
     tests/autonomy_smoke.py phase1               AUTO01-AUTO10
     tests/approval_dispatch_smoke.py phase1      APPROVE01-APPROVE20
+
+The claims in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) are checked here too:
+`ENV09` counts the check ids in every suite and fails if that document or this
+one states a total the suites do not define.
 
 `env_contract_smoke.py` and `applicability_smoke.py` need no database and
 no credentials.

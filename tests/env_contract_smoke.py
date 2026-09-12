@@ -1,4 +1,4 @@
-"""ENV01-ENV08. The repository must not lie about how to run it.
+"""ENV01-ENV09. The repository must not lie about how to run it.
 
 Every other suite here tests the software. This one tests the documents,
 because they failed in a way the software could not detect.
@@ -232,6 +232,67 @@ def env08_readme_does_not_claim_stub_only():
     )
 
 
+
+SUITE_CLAIM = re.compile(
+    r"(tests/[a-z_]+\.py)[^\n]*?([A-Z]+)(\d{2})-[A-Z]*(\d{2})"
+)
+
+# Documents that claim to describe the build as it is now. BUILD_STATE is
+# deliberately absent: it is a log, and its older sections rightly record
+# the totals that were true when they were written.
+CURRENT_DOCUMENTS = ("README.md", "docs/ARCHITECTURE.md")
+
+
+def counted_check_total():
+    """Distinct check ids, counted from the suites themselves."""
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    total = 0
+
+    for rel, prefix, _low, _high in SUITE_CLAIM.findall(text):
+        path = REPO_ROOT / rel
+
+        if not path.exists():
+            continue
+
+        body = path.read_text(encoding="utf-8", errors="replace")
+        total += len(
+            {int(n) for n in re.findall(rf"\b{prefix}(\d{{2}})\b", body)}
+        )
+
+    return total
+
+
+def env09_current_documents_agree_on_the_total():
+    """Every "N checks" in a current document matches the counted total."""
+    total = counted_check_total()
+    wrong = []
+
+    for rel in CURRENT_DOCUMENTS:
+        path = REPO_ROOT / rel
+
+        if not path.exists():
+            wrong.append(f"{rel} is missing")
+            continue
+
+        text = path.read_text(encoding="utf-8")
+        claims = re.findall(r"(\d+) checks", text)
+
+        if not claims:
+            wrong.append(f"{rel} makes no counted claim to check")
+            continue
+
+        for claimed in claims:
+            if int(claimed) != total:
+                wrong.append(
+                    f"{rel} claims {claimed}, the suites define {total}"
+                )
+
+    check(
+        "ENV09 CURRENT DOCUMENTS AGREE ON THE CHECK TOTAL",
+        not wrong and total > 0,
+        "; ".join(wrong) or f"counted total is {total}",
+    )
+
 CHECKS = (
     env01_example_is_generated,
     env02_secret_lists_agree,
@@ -241,6 +302,7 @@ CHECKS = (
     env06_readme_test_files_exist,
     env07_readme_check_ranges_are_true,
     env08_readme_does_not_claim_stub_only,
+    env09_current_documents_agree_on_the_total,
 )
 
 
