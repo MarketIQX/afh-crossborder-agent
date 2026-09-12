@@ -113,7 +113,7 @@ refuse. `LAYER 04` is the only place a yes can originate.
 | | |
 |---|---|
 | identity gate | `app/agent/bedrock.py::enforce_identity`. Refuses an unconfigured or unexpected AWS principal, and refuses the account root outright. There is deliberately no override, because a caller who could switch it off could invoke the model as root. Checked by `AGENT22`. |
-| mail ingest | Real Gmail, cursor-tracked in `app.ingestion_cursors`. A message is correlated to a case or left explicitly uncorrelated. |
+| mail ingest | Real Gmail, cursor-tracked in `app.ingestion_cursors`, scoped by `GMAIL_INGEST_QUERY` to what the firm treats as a client enquiry. Run against a live mailbox: one real enquiry ingested, cursor advanced, correlated to a new case. The ingestion scope is deliberately wider than the service scope — FEMA is included so a client writing about remittance reaches the firm and can be honestly escalated, rather than dropped at the mailbox. |
 | router | `app/autonomy/router.py`. Keyword dominance, no model: the leading service needs at least two distinct matches and at least twice the nearest rival's. A genuine straddle is refused and reaches a person. |
 | context assembly | `app/domain/context.py`. Server-side. Trims free prose only, and refuses rather than drop authorisation, scope, material dates or missing facts to fit a budget. |
 | retrieval scope | Two dated queries against `app.active_knowledge_units`, the view the runtime is granted. Topic match, plus ranked full-text capped at twelve. |
@@ -327,6 +327,16 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 - **The server refuses, it does not advise.** A model proposing a supported
   answer on inapplicable evidence raises, and the refusal names the ground.
 - **Neither role can delete anything.** Read from the catalogue.
+- **The router refused a real ambiguous enquiry rather than guessing.** A
+  live email arrived with the subject `Fema` and a body asking about tax in
+  India as an NRI — one keyword matching each of two services. Neither
+  reached the two-match threshold and neither dominated, so the router
+  recorded `AMBIGUOUS  no dominant service across 2 candidates, a human must
+  choose`, named which keyword matched which service, and left the case
+  without a scope. Migration 009 forbids acquiring a service scope
+  anonymously, so the case waits for a person instead of being guessed at.
+  This is the behaviour the dominance rule exists for, observed on live input
+  rather than a fixture.
 
 **Open, and known**
 
