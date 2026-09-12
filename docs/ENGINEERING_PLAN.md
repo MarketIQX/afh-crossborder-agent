@@ -285,8 +285,85 @@ Fix in Sprint 1, with a check that drives `before_tool_call` using the
 real schema shape rather than the inspector in isolation. Until then no
 claim may be made that client-facing copy is guarded at runtime.
 
-**Status: PARTIAL.** The inspector is correct and proven. The wiring is
-broken and now proven broken.
+**Status: PROVEN FIXED, 2026-09-13.** `proposed_action` unwraps the
+`action` argument and `client_facing_text` reads the declared
+client-facing keys at both the action level and inside the free-form
+`payload`. `WIRE01`-`WIRE09` drive genuine `BeforeToolCallEvent`
+objects built from Strands' own class, and reverting the fix in memory
+fails `WIRE01` and `WIRE03` -- so the fix is load-bearing rather than
+merely present.
+
+One gap remains and is not papered over: prose the model places under an
+unnamed key inside `payload` is still not inspected. Scanning every
+string in a free-form object would guard internal notes as client copy,
+and a guard that objects to everything teaches a model to ignore it.
+
+### 5.2d BLOCKING: D7 remains open
+
+P0-9. `record_proposed_facts` is not idempotent across runs, which
+contract section 7 requires of it by name. `app.case_facts` carries only
+a primary key and each call mints a fresh uuid, so a repeated run
+re-proposes the same facts: `country_of_residence` now holds 7 rows
+across 7 runs for 3 cases.
+
+The provider working does not retire this. It is a **blocking
+reliability item before any end-to-end learning, retry or resume flow is
+declared complete**, because every one of those depends on running the
+same operation twice and getting one result.
+
+It also compounds 5.2c. Revisions are append-only and monotonic, so a
+retry after a failed run is safe there. Facts are not, so the same retry
+that safely re-proposes an action unsafely re-proposes its evidence.
+
+**Status: OPEN.** Not fixed in S0.5, which closes defects the provider
+spike exposed rather than pre-existing ones.
+
+### 5.2c Failure semantics: what a FAILED run can already hold
+
+P0-4. Corrected from the S0.4 report, which claimed "failure cannot
+corrupt state" on the strength of two clean provider failures. The
+narrower statement is the proven one:
+
+> The tested 400 and 401 provider failures, which occur before any
+> tool-side write, produced no proposal, fact or gap side effects.
+> Delta on both: `runs=1 revisions=0 facts=0 gaps=0`.
+
+The broader claim is false, and was false before the Groq spike. Read
+from the live database:
+
+    FAILED     runs=5  revisions=3  facts=8
+    SUCCEEDED  runs=7  revisions=7  facts=21
+
+Three revisions and eight facts were written by runs that finished
+FAILED, two of them from the Bedrock era. So a failed run **can** carry
+completed, committed work -- the D9 case is exactly that: the proposal
+persisted, then the finalising print raised.
+
+The four questions, answered:
+
+**Is it an intended valid state?** By construction, yes. Tool writes
+commit in their own transaction as the model makes them; the run's
+`result_state` is set afterwards. Nothing rolls back a proposal because
+a later step failed, and nothing should -- the work was done.
+
+**Is it reachable?** Yes. `app/reviewer/queries.py` selects
+`result_state` for display and never filters on it, so a reviewer sees
+the proposal and sees that its run failed, side by side.
+
+**Would a retry duplicate it?** Revisions, no: they are append-only and
+monotonic, and `current_revision` equals the revision count on all three
+cases. Facts, yes -- see D7, unfixed.
+
+**Is there a reconciliation or resume path?** No. `app/agent/runner.py`
+contains no `OUTCOME_UNKNOWN`, no reconcile, no resume, no retry and no
+checkpoint. (An apparent `lease` match was this author's grep hitting
+`knowledge_release_id`.) So nothing distinguishes "the work completed and
+finalisation failed" from "the work did not happen", and a human reading
+`FAILED` cannot tell which without inspecting the rows.
+
+**Status: PARTIAL.** Pre-write provider failures fail cleanly: PROVEN.
+Post-side-effect failure semantics: PARTIAL, and the missing piece is
+outcome vocabulary rather than missing data.
 
 ### 5.3 Recorded defects, not blockers
 
@@ -300,9 +377,13 @@ broken and now proven broken.
 | D6 | Dead `titles` entries for routes that no longer reach them | `server.py:664` |
 | D7 | `record_proposed_facts` is not idempotent across runs, which contract section 7 requires. `case_facts` has only a primary key, and each call mints a fresh uuid | Live data: `country_of_residence` holds 7 rows across 7 runs for 3 cases |
 | D8 | `BedrockStrandsModel` is the class name executing a Groq run. Semantic debt, deliberately not renamed two days from the deadline | `app/agent/bedrock.py:311` |
-| D9 | Model output containing a character outside cp1252 kills a run on Windows. Strands' default callback handler writes to stdout; `\u202f` from the model raised `UnicodeEncodeError` and the run recorded FAILED **after** its proposal had already persisted. Fix is `callback_handler=None` on a server-side agent, not an encoding flag | run `41973747`, reproduced twice |
+| D9 | **FIXED 2026-09-13.** Model output containing a character outside cp1252 killed a run on Windows via Strands' default stdout handler. `callback_handler=None` is now set: the handler is presentation only, and nothing audit-bearing reads it -- records come from `ToolTrace`, `app.agent_tool_calls` and `app.agent_runs`. Proven by reproducing `UnicodeEncodeError` on `U+202F` under a cp1252 stdout and showing the null handler completes | run `41973747`; probe reproduces then clears |
 | **D10** | **`ClientCopyGuard` and `EvidenceFirstGuard` inspect nothing on a real tool call.** Strands passes `{"action": {...}}` for `propose_next_action`, and `client_facing_text` reads `client_message` off the top level, so it sees `''` and both guards return `Proceed` on a letter `inspect_copy` flags with two problems. `AGENT25`/`AGENT26` pass because they call `inspect_copy` directly and never drive `before_tool_call` | proven both ways: nested payload → PROCEEDED, flat payload → GUIDED |
 | D11 | A single enquiry costs ~18,900 tokens (16,717 in, 2,202 out) across 5 model calls. Groq's free tier allows 8,000 per minute, so one enquiry exceeds the per-minute ceiling by more than double | run `70f00951`, measured |
+| D12 | Free-tier capacity risk. One complete enquiry consumed 18,919 tokens across five model calls in ~88 seconds. Groq documents 8,000 TPM for this model, so headroom is thin. **Corrected from the S0.4 report**, which called this a per-minute violation: total tokens over 88 seconds are not tokens inside one 60-second window, and the run succeeded. Actual per-window usage is NOT PROVEN | run `70f00951` |
+| D13 | Per-call observability absent. `metrics.cycle_durations` and `metrics.traces` carry per-cycle latency at no extra token cost, but `runner.execute` discards the result object that holds them. Groq's rate-limit headers need a custom client passed to `OpenAIModel(client=...)`, which is officially supported | inspected, not built |
+| D14 | `evidence_refs: list = ()` is a tactical compatibility fix, not the cleanest contract. Strands renders a required parameter as `{"type":"array"}` with no default, making absence impossible and `[]` unambiguous; the tuple default yields `{"type":"array","default":[]}`, permitting two representations of the same thing. Recommended change, deliberately deferred | schemas compared |
+| D15 | `GROQ_STRANDS` collapses two dimensions. Agent runtime, inference provider, model id and configuration versions are separate facts, and a new provider should not need a migration. Long-term run provenance should also carry policy version, applicability vocabulary version, tool contract version and retrieval configuration | migration 025 |
 
 ---
 

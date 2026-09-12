@@ -418,6 +418,20 @@ class BedrockStrandsModel:
             "system_prompt": SYSTEM_PROMPT,
             "hooks": run_hooks,
             "interventions": run_interventions,
+            # No console output. The SDK's default handler streams the
+            # model's text to stdout, which is presentation only -- every
+            # record this system relies on comes from `ToolTrace`,
+            # `app.agent_tool_calls` and `app.agent_runs`, and none of
+            # them reads it.
+            #
+            # It was also an availability defect. A run on Windows died
+            # with UnicodeEncodeError because the model emitted U+202F, a
+            # narrow no-break space, and the console encoding could not
+            # represent it. The proposal had already been persisted, so
+            # the work was done and the run was still recorded FAILED. An
+            # agent that runs unattended must not be able to fail on a
+            # character it chose to print.
+            "callback_handler": None,
         }
 
         skills_plugin = build_skills_plugin()

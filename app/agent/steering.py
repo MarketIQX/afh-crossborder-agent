@@ -89,19 +89,67 @@ def _tool_input(event):
     return (getattr(event, "tool_use", None) or {}).get("input") or {}
 
 
-def client_facing_text(payload):
-    """Every string in a proposal that a client could end up reading."""
+def proposed_action(event):
+    """The action a proposal carries, unwrapped from the tool's arguments.
+
+    `propose_next_action(action: dict)` declares exactly one property, so
+    Strands delivers `{"action": {...}}` and everything these guards read
+    sits one level down. Reading the top level instead is the defect this
+    function exists to close: both guards fired on every proposal,
+    inspected an empty string, and returned Proceed.
+
+    Falls back to the arguments themselves when there is no `action` key,
+    so a direct call with an already-unwrapped action still works.
+    `WIRE09` fails if the declared schema stops matching this
+    expectation, which is what keeps the fallback from quietly becoming
+    the only path that runs.
+    """
+    arguments = _tool_input(event)
+    action = arguments.get("action")
+
+    return action if isinstance(action, dict) else arguments
+
+
+CLIENT_FACING_KEYS = (
+    "client_message",
+    "requested_information",
+    "summary",
+)
+
+
+def client_facing_text(action):
+    """Every string in a proposal that a client could end up reading.
+
+    Scanned at two levels. `summary` and `requested_information` are
+    declared parts of the action; `payload` is free-form model output and
+    is where client-facing prose actually lands, so the same keys are
+    read inside it.
+
+    Keys inside `payload` other than those named above are deliberately
+    not scanned. Reading every string in a free-form object would guard
+    internal notes as if they were client copy, and a guard that objects
+    to everything teaches a model to ignore it. That leaves a real gap:
+    prose placed under an unnamed key is not inspected. Recorded rather
+    than papered over.
+    """
     parts = []
+    sources = [action]
 
-    for key in ("client_message", "requested_information", "summary"):
-        value = payload.get(key)
+    nested = action.get("payload")
 
-        if isinstance(value, str):
-            parts.append(value)
-        elif isinstance(value, (list, tuple)):
-            parts.extend(str(item) for item in value)
-        elif isinstance(value, dict):
-            parts.extend(str(item) for item in value.values())
+    if isinstance(nested, dict):
+        sources.append(nested)
+
+    for source in sources:
+        for key in CLIENT_FACING_KEYS:
+            value = source.get(key)
+
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, (list, tuple)):
+                parts.extend(str(item) for item in value)
+            elif isinstance(value, dict):
+                parts.extend(str(item) for item in value.values())
 
     return "\n".join(parts)
 
@@ -162,8 +210,8 @@ class ClientCopyGuard(InterventionHandler):
         if _tool_name(event) != PROPOSE_TOOL:
             return Proceed()
 
-        payload = _tool_input(event)
-        text = client_facing_text(payload)
+        action = proposed_action(event)
+        text = client_facing_text(action)
 
         if not text.strip():
             return Proceed()
@@ -178,7 +226,7 @@ class ClientCopyGuard(InterventionHandler):
         if self.trace is not None:
             self.trace.record(
                 tool_name=PROPOSE_TOOL,
-                arguments=payload,
+                arguments=action,
                 error=f"steering guided client copy: {'; '.join(problems)}",
             )
 
@@ -214,8 +262,8 @@ class EvidenceFirstGuard(InterventionHandler):
         if name != PROPOSE_TOOL:
             return Proceed()
 
-        payload = _tool_input(event)
-        state = str(payload.get("decision_state") or "").upper()
+        action = proposed_action(event)
+        state = str(action.get("decision_state") or "").upper()
 
         if state != SUPPORT_STATE or self.retrieved:
             return Proceed()
@@ -225,7 +273,7 @@ class EvidenceFirstGuard(InterventionHandler):
         if self.trace is not None:
             self.trace.record(
                 tool_name=PROPOSE_TOOL,
-                arguments=payload,
+                arguments=action,
                 error="steering guided: support proposed before retrieval",
             )
 
