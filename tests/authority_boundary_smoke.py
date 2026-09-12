@@ -52,6 +52,10 @@ def app_conn():
     return psycopg.connect(**SETTINGS.app_kwargs())
 
 
+def reviewer_conn():
+    return psycopg.connect(**SETTINGS.reviewer_kwargs())
+
+
 def cleanup():
     """Remove only this suite's fixtures, in foreign key safe order."""
     with admin_conn() as conn:
@@ -521,6 +525,114 @@ def auth21_source_verification_requires_evidence():
     )
 
 
+def auth22_reviewer_can_append_a_confirmed_fact():
+    """The positive control for migration 021.
+
+    Confirmation is an append, not an edit: the reviewer writes a new
+    row and the agent's PROPOSED row is left untouched. Both must be
+    present afterwards, because the proposal and the confirmation are
+    two acts by two actors and destroying either loses provenance.
+    """
+    fact_id = "95700000-0000-0000-0000-000000000001"
+
+    with admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM app.case_facts WHERE id = %s", (fact_id,)
+            )
+        conn.commit()
+
+    try:
+        with reviewer_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO app.case_facts "
+                    "(id, case_id, predicate, value_text, status, origin) "
+                    "VALUES (%s, %s, 'citizenship_status', 'indian', "
+                    "'CONFIRMED', 'REVIEWER')",
+                    (fact_id, CASE_ID),
+                )
+            conn.commit()
+
+        with admin_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT status, origin FROM app.case_facts "
+                    "WHERE id = %s",
+                    (fact_id,),
+                )
+                row = cur.fetchone()
+
+        if row != ("CONFIRMED", "REVIEWER"):
+            raise RuntimeError(
+                f"AUTH22 FAIL: reviewer fact stored as {row!r}"
+            )
+
+        # The reviewer must not be able to rewrite it afterwards.
+        rewrote = False
+
+        try:
+            with reviewer_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE app.case_facts SET value_text = 'edited' "
+                        "WHERE id = %s",
+                        (fact_id,),
+                    )
+                conn.commit()
+                rewrote = True
+        except InsufficientPrivilege:
+            pass
+
+        if rewrote:
+            raise RuntimeError(
+                "AUTH22 FAIL: reviewer rewrote a confirmed fact; "
+                "confirmation must be an append, not an edit"
+            )
+    finally:
+        with admin_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM app.case_facts WHERE id = %s", (fact_id,)
+                )
+            conn.commit()
+
+    print("AUTH22 REVIEWER CAN APPEND A CONFIRMED FACT: PASS")
+
+
+def auth23_no_role_can_delete_anything():
+    """The claim published in docs/ARCHITECTURE.md, made executable.
+
+    Neither serving role holds DELETE on any table in the schema, and
+    neither holds TRUNCATE, which would achieve the same thing. Read
+    from the catalogue so a future GRANT cannot pass unnoticed.
+    """
+    with admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT grantee, table_name, privilege_type
+                FROM information_schema.table_privileges
+                WHERE table_schema = 'app'
+                  AND privilege_type IN ('DELETE', 'TRUNCATE')
+                  AND grantee IN ('agents_app', 'agents_reviewer')
+                ORDER BY grantee, table_name
+                """
+            )
+            offenders = cur.fetchall()
+
+    if offenders:
+        detail = ", ".join(
+            f"{g}:{t}:{p}" for g, t, p in offenders[:6]
+        )
+        raise RuntimeError(
+            f"AUTH23 FAIL: {len(offenders)} destructive grant(s) exist "
+            f"where the architecture document claims none: {detail}"
+        )
+
+    print("AUTH23 NO SERVING ROLE CAN DELETE OR TRUNCATE: PASS")
+
+
 CHECKS = (
     auth01_cannot_set_fact_status,
     auth02_agent_fact_defaults_to_proposed,
@@ -543,6 +655,8 @@ CHECKS = (
     auth19_valid_revision_keeps_provenance,
     auth20_base_knowledge_table_is_unreachable,
     auth21_source_verification_requires_evidence,
+    auth22_reviewer_can_append_a_confirmed_fact,
+    auth23_no_role_can_delete_anything,
 )
 
 

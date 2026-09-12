@@ -139,7 +139,7 @@ about the client can never decide which rules govern that client.
 
 ### What is actually proven
 
-**138 checks across nine suites, passing from nothing.** A throwaway
+**141 checks across nine suites, passing from nothing.** A throwaway
 PostgreSQL container is built from the repository alone, every check runs
 against it, and the container is destroyed.
 
@@ -165,14 +165,15 @@ schema** for either role.
 
 Stated because leaving it out would overclaim.
 
-- Applicability is **enforced and currently inert on live data**: no unit
-  in the corpus carries a restriction yet, so every unit applies to
-  everyone. The mechanism is proven; it changes no real answer until a
-  reviewer tags units at sign-off.
-- **No human can confirm a case fact yet.** The schema anticipates it and
-  no console path implements it. Since applicability reads confirmed
-  facts only, this is the single gap between the gate working in a test
-  and working for a client.
+- Applicability now **excludes on real rows** — a verified rule about
+  residents is refused for a confirmed non-resident, through real context
+  assembly and retrieval, with the ground recorded. But no unit in the live
+  corpus carries a restriction yet, so on today's data every unit still
+  applies to everyone. What is missing is reviewer tagging at sign-off, not
+  the mechanism.
+- **A reviewer can confirm a fact, through the database only.** That grant
+  was absent until now, which made a supported answer unreachable on any
+  input. The console route to do it from the interface does not exist yet.
 - Two applicability dimensions, exact-match vocabulary. Treaty country,
   income type and entity type have no expression.
 - One corridor in scope. Anything outside it is refused honestly and

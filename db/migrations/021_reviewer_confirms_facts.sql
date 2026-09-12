@@ -1,0 +1,72 @@
+BEGIN;
+
+-- The gap that made SUPPORTED_WITHIN_POLICY unreachable.
+--
+-- A forensic audit of the live database found this, and it is worth
+-- recording precisely because nothing in the code or the documents
+-- suggested it:
+--
+--   app.case_facts:  26 rows.  26 PROPOSED / AGENT_PROPOSED.
+--                    0 CONFIRMED.  0 REVIEWER-origin.  Ever.
+--
+-- The schema had anticipated reviewer-confirmed facts since migration
+-- 002 -- case_facts_reviewer_requires_confirmed forces a REVIEWER row
+-- to be CONFIRMED, and case_facts_single_confirmed reserves one
+-- confirmed value per predicate. Both constraints were waiting for a
+-- grant that was never issued.
+--
+-- The consequence was not cosmetic. SUPPORTED_WITHIN_POLICY requires
+-- missing_material_predicates to be empty; this service declares five
+-- material predicates; no actor in the system could confirm one. So
+-- the agent could reach MISSING_FACTS, MISSING_KNOWLEDGE, OUT_OF_SCOPE
+-- or SOURCE_CONFLICT, and could never, on any input, produce a
+-- supported answer. Zero of eight recorded proposal revisions reached
+-- it. Not "has not yet" -- could not.
+--
+-- The same gap disabled applicability. case_attributes() reads
+-- CONFIRMED facts only, by design, so that no rule is ever judged
+-- applicable on the strength of something the model asserted. With
+-- nothing confirmable, the case side was permanently empty: every
+-- restricted rule could only ever be UNKNOWN, and the FALSE branch --
+-- the one that excludes a rule about somebody the client is not -- was
+-- unreachable in production rather than merely unused.
+--
+-- Confirmation is an APPEND, not an edit.
+--
+-- The reviewer is granted INSERT and nothing else. Confirming a fact
+-- writes a new row attributed to the reviewer; the agent's PROPOSED
+-- row stays exactly where it is. That is deliberate on three counts:
+--
+--   1. Provenance. The proposal and the confirmation are two acts by
+--      two actors, and both remain visible. An edit would destroy the
+--      record of what the agent actually proposed.
+--   2. Consistency. Everything else here is append-only -- proposal
+--      revisions, approvals, dispatches -- and no role holds DELETE on
+--      any table in the schema.
+--   3. Safety. Without UPDATE, a reviewer cannot silently alter a
+--      fact after a decision was reasoned from it.
+--
+-- case_facts_single_confirmed is a PARTIAL unique index on
+-- (case_id, predicate) WHERE status = 'CONFIRMED', so the proposed row
+-- and the confirmed row coexist without conflict, and a second
+-- confirmation of the same predicate is refused by the database rather
+-- than by application code.
+--
+-- What this deliberately does NOT grant:
+--
+--   * UPDATE -- a confirmed fact cannot be rewritten.
+--   * the run_id column -- a reviewer's fact is not attributed to an
+--     agent run, because the reviewer did not make one.
+--   * the evidence_refs column -- the agent cites tool evidence for a
+--     proposal; a professional's confirmation rests on their own
+--     authority, which the origin column already records.
+--
+-- AUTH01 through AUTH04 are unaffected. They assert what the RUNTIME
+-- role cannot do, and the runtime role's grants are untouched: it may
+-- still only INSERT a fact that defaults to PROPOSED, may not set
+-- status, may not claim REVIEWER origin, and may not UPDATE.
+
+GRANT INSERT (id, case_id, predicate, value_text, status, origin)
+    ON app.case_facts TO agents_reviewer;
+
+COMMIT;

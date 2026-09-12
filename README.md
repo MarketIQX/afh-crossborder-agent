@@ -168,7 +168,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-138 checks across nine suites. Every one names what it proves, and the
+141 checks across nine suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -186,8 +186,8 @@ Individual suites:
     tests/env_contract_smoke.py                  ENV01-ENV09
     tests/applicability_smoke.py                 APPLY01-APPLY14
     tests/db_integrity_smoke.py phase1           DB01-DB10
-    tests/authority_boundary_smoke.py phase1     AUTH01-AUTH21
-    tests/agent_slice_smoke.py phase1            AGENT01-AGENT28
+    tests/authority_boundary_smoke.py phase1     AUTH01-AUTH23
+    tests/agent_slice_smoke.py phase1            AGENT01-AGENT29
     tests/ingestion_smoke.py phase1              INGEST01-INGEST14
     tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
     tests/autonomy_smoke.py phase1               AUTO01-AUTO10

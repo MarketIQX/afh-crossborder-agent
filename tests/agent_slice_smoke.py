@@ -121,6 +121,10 @@ def admin_conn():
     return psycopg.connect(**SETTINGS.admin_kwargs())
 
 
+def reviewer_conn():
+    return psycopg.connect(**SETTINGS.reviewer_kwargs())
+
+
 def app_conn():
     return psycopg.connect(**SETTINGS.app_kwargs())
 
@@ -1218,6 +1222,149 @@ def agent28_applicability_columns_survive_retrieval():
     )
 
 
+def agent29_applicability_excludes_through_the_real_pipeline():
+    """A verified rule about residents, excluded from a non-resident.
+
+    Real case, real context assembly, real retrieval, real decision
+    layer. The fact is confirmed by the REVIEWER role, not the owner,
+    so this exercises migration 021's grant on the path a console would
+    actually use.
+    """
+    from app.domain import applicability  # noqa: F401
+    from app.domain import context as ctx_module
+    from app.domain import decision as decision_module
+    from app.domain import knowledge as knowledge_module
+
+    probe_unit = "39000000-0000-0000-0000-0000000000b1"
+    probe_fact = "39100000-0000-0000-0000-0000000000b1"
+    statement = (
+        "A resident and ordinarily resident individual is liable to "
+        "Indian tax on global income wherever earned."
+    )
+
+    # Discover the release this case actually reads. It is NOT
+    # ACTIVE_RELEASE: CASE_SUPPORTED is bound to the simulated approved
+    # fixture, the only release in a clean build carrying
+    # PROFESSIONALLY_VERIFIED units. Hardcoding a release would assert
+    # against a corpus the case never consults.
+    with app_conn() as conn:
+        bound_release = ctx_module.assemble(
+            conn, CASE_SUPPORTED
+        ).knowledge_release_id
+
+    with admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app.knowledge_units (
+                    id, release_id, unit_key, topic, statement,
+                    source_locator, verification_status, effective_from,
+                    applies_to_residency
+                ) VALUES (
+                    %s, %s, 'agent29_probe', 'tax_residency', %s,
+                    'AGENT29 probe, not a real source',
+                    'UNVERIFIED', DATE '2020-04-01', 'RESIDENT'
+                )
+                """,
+                (probe_unit, bound_release, statement),
+            )
+        conn.commit()
+
+    try:
+        # Confirm the fact AS THE REVIEWER. This is the path a console
+        # uses, and before migration 021 it was impossible.
+        with reviewer_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO app.case_facts "
+                    "(id, case_id, predicate, value_text, status, origin) "
+                    "VALUES (%s, %s, 'residency_status', 'non-resident', "
+                    "'CONFIRMED', 'REVIEWER')",
+                    (probe_fact, CASE_SUPPORTED),
+                )
+            conn.commit()
+
+        with app_conn() as conn:
+            ctx = ctx_module.assemble(conn, CASE_SUPPORTED)
+
+            if ctx.confirmed_facts.get("residency_status") != "non-resident":
+                raise RuntimeError(
+                    f"AGENT29 FAIL: the reviewer's confirmed fact did not "
+                    f"reach the context: {ctx.confirmed_facts!r}"
+                )
+
+            with conn.cursor() as cur:
+                units, _matched = knowledge_module.retrieve_by_query(
+                    cur,
+                    ctx.knowledge_release_id,
+                    ctx.in_scope_topics,
+                    statement,
+                    ctx.material_date,
+                )
+                conflicts = knowledge_module.declared_conflicts(
+                    cur, [u.unit_id for u in units]
+                )
+
+            evaluation = decision_module.evaluate(ctx, units, conflicts)
+
+        if probe_unit not in {u.unit_id for u in units}:
+            raise RuntimeError(
+                f"AGENT29 FAIL: the probe unit was not retrieved, so the "
+                f"gate was never given the chance to exclude it.\n"
+                f"  ctx.knowledge_release_id = "
+                f"{ctx.knowledge_release_id}\n"
+                f"  probe inserted into      = {bound_release}\n"
+                f"  ctx.material_date        = {ctx.material_date}\n"
+                f"  ctx.in_scope_topics      = {ctx.in_scope_topics}\n"
+                f"  units retrieved          = {len(units)}\n"
+                f"  unit keys                = "
+                f"{sorted(u.unit_key for u in units)}\n"
+                f"  search expression        = "
+                f"{knowledge_module.search_expression(statement)}"
+            )
+
+        if probe_unit not in set(evaluation.excluded_unit_ids):
+            raise RuntimeError(
+                f"AGENT29 FAIL: a RESIDENT-only rule was not excluded "
+                f"for a confirmed non-resident. excluded="
+                f"{evaluation.excluded_unit_ids}"
+            )
+
+        if probe_unit in set(evaluation.approved_unit_ids):
+            raise RuntimeError(
+                "AGENT29 FAIL: an excluded unit was still offered as "
+                "usable guidance"
+            )
+
+        named = any(
+            "do not apply" in line and "residency_status" in line
+            for line in evaluation.rationale
+        )
+
+        if not named:
+            raise RuntimeError(
+                f"AGENT29 FAIL: the exclusion was applied but not "
+                f"recorded. rationale={evaluation.rationale}"
+            )
+    finally:
+        with admin_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM app.case_facts WHERE id = %s",
+                    (probe_fact,),
+                )
+                cur.execute(
+                    "DELETE FROM app.knowledge_units WHERE id = %s",
+                    (probe_unit,),
+                )
+            conn.commit()
+
+    print(
+        "AGENT29 APPLICABILITY EXCLUDES THROUGH THE REAL PIPELINE: PASS "
+        "(reviewer-confirmed fact, real context, real retrieval)"
+    )
+
+
 def agent20_fixture_digests_match_their_passages():
     """A stored digest must match its captured passage.
 
@@ -1463,6 +1610,7 @@ def phase1():
     agent26_steering_requires_retrieval_before_support()
     agent27_unverified_guidance_is_never_usable()
     agent28_applicability_columns_survive_retrieval()
+    agent29_applicability_excludes_through_the_real_pipeline()
     agent20_fixture_digests_match_their_passages()
     agent21_simulated_fixture_cannot_reach_the_application()
     agent22_identity_gate_cannot_be_bypassed()

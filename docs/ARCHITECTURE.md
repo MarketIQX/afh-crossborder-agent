@@ -312,7 +312,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 
 **Established**
 
-- **138 checks, nine suites, from nothing.** `scripts/verify_clean_slate.py`
+- **141 checks, nine suites, from nothing.** `scripts/verify_clean_slate.py`
   builds a throwaway container from the repository alone, runs every check
   against it, and destroys it.
 - **The applicability gate is load-bearing.** With `applicability.assess`
@@ -330,16 +330,24 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 
 **Open, and known**
 
-- **The gate is inert on live data.** Twelve units, five professionally
-  verified, and not one carries a restriction. Every unit is therefore
-  unrestricted and applies to everyone. The mechanism is proven; it changes no
-  real answer yet.
-- **No human can confirm a case fact.** The schema anticipates it — a
-  reviewer-origin fact must be `CONFIRMED` — but no grant and no console path
-  implement it. Applicability reads confirmed facts only, so its case side
-  cannot be populated in production today. This is the single most consequential
-  gap in the build: it is what stands between the applicability gate working in
-  a test and working for a client.
+- **The gate excludes on real rows; the live corpus is still untagged.**
+  `AGENT29` drives context assembly, retrieval and the decision layer against
+  real rows with a reviewer-confirmed fact, and a verified rule about residents
+  is excluded from a confirmed non-resident's case with the ground recorded. So
+  the `FALSE` branch is demonstrated, not merely tested in isolation. But all
+  twelve units in the live corpus still carry no restriction, so on today's data
+  every unit applies to everyone. What is missing is reviewer tagging at
+  sign-off, not the mechanism.
+- **A reviewer can now confirm a fact — through the database only.**
+  Migration 021 grants `agents_reviewer` column-level `INSERT` on
+  `app.case_facts`, and confirmation is an append rather than an edit, so the
+  agent's proposal survives as evidence beside the human's confirmation.
+  `AUTH22` proves the reviewer can append a `CONFIRMED` row and cannot rewrite
+  it afterwards; `AGENT29` proves the confirmed fact reaches the decision layer.
+  Before this, zero of twenty-six fact rows had ever been confirmed and
+  `SUPPORTED_WITHIN_POLICY` was unreachable on any input rather than merely
+  unobserved. **The console route does not exist yet**, so a reviewer cannot do
+  this from the interface: the capability is real, the interface is not.
 - **Two dimensions, exact match.** Residency and citizenship are the corridor
   this build demonstrates. Treaty country, income type and age have no
   expression at all. The vocabulary matches whole normalised strings and
@@ -370,7 +378,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 ## Verify it yourself
 
 ```
-# build a throwaway database from this repository, run all 138 checks,
+# build a throwaway database from this repository, run all 141 checks,
 # destroy it. The primary instance is never touched.
 .venv/Scripts/python.exe scripts/verify_clean_slate.py
 
