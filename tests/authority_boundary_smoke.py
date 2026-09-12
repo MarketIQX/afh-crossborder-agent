@@ -633,6 +633,114 @@ def auth23_no_role_can_delete_anything():
     print("AUTH23 NO SERVING ROLE CAN DELETE OR TRUNCATE: PASS")
 
 
+def auth24_reviewer_narrows_a_rule_and_nothing_else():
+    """Applicability is editable by a reviewer. The rule itself is not."""
+    with reviewer_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE app.knowledge_units "
+                "SET applies_to_residency = 'NON_RESIDENT' WHERE id = %s",
+                (UNIT_ID,),
+            )
+        conn.commit()
+
+    with admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT applies_to_residency, statement, "
+                "verification_status FROM app.knowledge_units "
+                "WHERE id = %s",
+                (UNIT_ID,),
+            )
+            residency, statement_before, status_before = cur.fetchone()
+
+    if residency != "NON_RESIDENT":
+        raise RuntimeError(
+            f"AUTH24 FAIL: reviewer could not record applicability; "
+            f"column reads {residency!r}"
+        )
+
+    # 2 and 3: the grant must not reach anything else on the row.
+    for column, value in (
+        ("statement", "'Rewritten by a reviewer'"),
+        ("verification_status", "'PROFESSIONALLY_VERIFIED'"),
+    ):
+        widened = False
+
+        try:
+            with reviewer_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"UPDATE app.knowledge_units SET {column} = "
+                        f"{value} WHERE id = %s",
+                        (UNIT_ID,),
+                    )
+                conn.commit()
+                widened = True
+        except InsufficientPrivilege:
+            pass
+
+        if widened:
+            raise RuntimeError(
+                f"AUTH24 FAIL: a reviewer rewrote {column}. The "
+                f"applicability grant has been widened beyond two "
+                f"columns and the signed record is no longer immutable."
+            )
+
+    # 4: the value vocabulary is enforced by the database, not by
+    #    store.set_applicability, so go around the application.
+    refused = False
+
+    try:
+        with reviewer_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE app.knowledge_units "
+                    "SET applies_to_residency = 'MARTIAN' WHERE id = %s",
+                    (UNIT_ID,),
+                )
+            conn.commit()
+    except CheckViolation:
+        refused = True
+
+    if not refused:
+        raise RuntimeError(
+            "AUTH24 FAIL: the database accepted an invalid residency "
+            "class. Validation lives only in Python and a reviewer can "
+            "invent a class of person."
+        )
+
+    with admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT statement, verification_status "
+                "FROM app.knowledge_units WHERE id = %s",
+                (UNIT_ID,),
+            )
+            statement_after, status_after = cur.fetchone()
+
+            cur.execute(
+                "UPDATE app.knowledge_units "
+                "SET applies_to_residency = NULL WHERE id = %s",
+                (UNIT_ID,),
+            )
+        conn.commit()
+
+    if (statement_after, status_after) != (
+        statement_before, status_before
+    ):
+        raise RuntimeError(
+            "AUTH24 FAIL: the rule changed underneath the applicability "
+            "edit"
+        )
+
+    print(
+        "AUTH24 REVIEWER NARROWS A RULE AND NOTHING ELSE: PASS "
+        "(2 columns writable, statement and status refused, "
+        "invalid class refused by the database)"
+    )
+
+
 CHECKS = (
     auth01_cannot_set_fact_status,
     auth02_agent_fact_defaults_to_proposed,
@@ -657,6 +765,7 @@ CHECKS = (
     auth21_source_verification_requires_evidence,
     auth22_reviewer_can_append_a_confirmed_fact,
     auth23_no_role_can_delete_anything,
+    auth24_reviewer_narrows_a_rule_and_nothing_else,
 )
 
 

@@ -648,7 +648,7 @@ column somebody has to remember.
 
 ### State
 
-141 checks across nine suites, passing from a clean slate.
+142 checks across nine suites, passing from a clean slate.
 `APPLY01-APPLY14` and `AGENT28` are new.
 
 Sections above this one are a log and describe the state at the time

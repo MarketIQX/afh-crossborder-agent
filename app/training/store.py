@@ -19,6 +19,7 @@ import uuid
 
 from psycopg.types.json import Jsonb
 
+from app.domain import applicability
 from app.training import documents, extract
 
 
@@ -332,6 +333,97 @@ def reject(conn, candidate_id, reviewer_id, note):
                     "decided"
                 )
 
+
+
+def applicability_values():
+    """The canonical value per dimension, taken from one source.
+
+    applicability.DIMENSIONS maps a client's wording onto a canonical
+    value; the canonical values are what the column accepts, and the
+    CHECK constraints from migration 019 police the same set in the
+    database. Deriving them here keeps a third copy from existing.
+    """
+    return {
+        dimension["name"]: sorted(set(dimension["values"].values()))
+        for dimension in applicability.DIMENSIONS
+    }
+
+
+def set_applicability(conn, unit_id, residency=None, citizenship=None):
+    """Record which class of person a signed rule is about.
+
+    Reviewer connection. Migration 022 grants UPDATE on exactly these
+    two columns, so this cannot alter what the rule says, the evidence
+    under it, or whose name is on it.
+
+    Pass None to leave a dimension alone and the empty string to clear
+    it. Clearing means "this rule does not narrow itself here", which is
+    the default and is not the same as an unknown value.
+
+    The database refuses an invalid value regardless of what this
+    function does; the check here exists so a reviewer gets a useful
+    message rather than a constraint violation.
+    """
+    allowed = applicability_values()
+    updates = {}
+
+    for name, column, raw in (
+        ("residency", "applies_to_residency", residency),
+        ("citizenship", "applies_to_citizenship", citizenship),
+    ):
+        if raw is None:
+            continue
+
+        value = str(raw).strip().upper()
+
+        if not value:
+            updates[column] = None
+            continue
+
+        if value not in allowed[name]:
+            raise TrainingRefused(
+                f"{value!r} is not a {name} class this vocabulary "
+                f"knows. Accepted: {', '.join(allowed[name])}. Nothing "
+                f"was changed."
+            )
+
+        updates[column] = value
+
+    if not updates:
+        raise TrainingRefused(
+            "no dimension was given, so there is nothing to record"
+        )
+
+    assignments = ", ".join(f"{col} = %s" for col in updates)
+
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE app.knowledge_units SET {assignments} "
+                f"WHERE id = %s",
+                (*updates.values(), unit_id),
+            )
+
+            if cur.rowcount != 1:
+                raise TrainingRefused(
+                    f"no knowledge unit {unit_id}, so nothing was "
+                    f"recorded"
+                )
+
+            cur.execute(
+                "SELECT topic, applies_to_residency, "
+                "applies_to_citizenship FROM app.knowledge_units "
+                "WHERE id = %s",
+                (unit_id,),
+            )
+            topic, res, cit = cur.fetchone()
+
+    return {
+        "unit_id": unit_id,
+        "topic": topic,
+        "applies_to_residency": res,
+        "applies_to_citizenship": cit,
+    }
 
 def accept_and_publish(conn, candidate_id, reviewer_id, service_id,
                        source_locator, note=""):
