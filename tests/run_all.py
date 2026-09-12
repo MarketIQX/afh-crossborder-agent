@@ -27,6 +27,7 @@ STEPS = (
     ("environment contract", ["tests/env_contract_smoke.py"]),
     ("applicability", ["tests/applicability_smoke.py"]),
     ("model provider", ["tests/model_provider_smoke.py"]),
+    ("knowledge gaps", ["tests/gap_smoke.py"]),
     ("database integrity", ["tests/db_integrity_smoke.py", "phase1"]),
     ("authority boundaries", ["tests/authority_boundary_smoke.py", "phase1"]),
     ("agent slice end to end", ["tests/agent_slice_smoke.py", "phase1"]),

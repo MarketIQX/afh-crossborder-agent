@@ -24,7 +24,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 
-from app.domain import applicability, decision, knowledge
+from app.domain import applicability, decision, gaps, knowledge
 from app.domain.context import tokenize
 
 TOOL_SCHEMA_VERSION = "tool-schema-v1"
@@ -543,6 +543,10 @@ class AgentTools:
 
             revision = current + 1
 
+            # Named rather than discarded: the gap record below
+            # references this revision as its evidence.
+            revision_id = str(uuid.uuid4())
+
             cur.execute(
                 """
                 INSERT INTO app.proposal_revisions (
@@ -555,7 +559,7 @@ class AgentTools:
                 )
                 """,
                 (
-                    str(uuid.uuid4()),
+                    revision_id,
                     proposal_id,
                     revision,
                     self._binding.run_id,
@@ -574,6 +578,20 @@ class AgentTools:
                 "SET current_revision = %s, updated_at = now() "
                 "WHERE id = %s",
                 (revision, proposal_id),
+            )
+
+            # A decision that stops short of an answer is a request for
+            # help, and it is recorded here so it cannot exist without
+            # the decision that caused it, or the decision without it.
+            # Deduplication is the table's job: a repeat of the same
+            # unanswered gap returns None and adds nothing.
+            gaps.record(
+                cur,
+                self._binding.case_id,
+                revision_id,
+                self._evaluation,
+                state,
+                gaps.fact_hints(cur, self._binding.service_id),
             )
 
         return ProposalRecord(
