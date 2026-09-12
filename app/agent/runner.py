@@ -160,9 +160,12 @@ def _gather_knowledge(conn, ctx):
 
     topics = ctx.in_scope_topics
 
-    # The client's own words, which is what the tool searches with. A
-    # server validating the model's conclusion must see at least the
-    # evidence the model could see.
+    # The client's own words. Note what this does NOT establish: the
+    # tool searches with the query string the model chose, not with
+    # this text, so the two text arms can surface different units. The
+    # intended property -- that a validator sees at least the evidence
+    # the model could see -- is therefore not enforced here. See the
+    # open list in docs/ARCHITECTURE.md.
     enquiry_text = ""
 
     if ctx.enquiry is not None:

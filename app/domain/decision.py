@@ -143,9 +143,18 @@ def evaluate(context, units, conflicts, failure_reason=None):
     in_scope = context.in_scope_topics
     out_of_scope = context.out_of_scope_topics
 
-    # Applicability first, and three-valued. Computed by the same
-    # function the knowledge tool calls, so what the model was shown
-    # and what this layer will accept cannot drift apart.
+    # Applicability first, and three-valued. The knowledge tool calls
+    # this same function, so the two cannot disagree about what
+    # applicability means.
+    #
+    # They can still be judging different units. The tool retrieves with
+    # the query the model chose; this layer's units were retrieved with
+    # the client's own words. Release, in-scope topics and material date
+    # are identical, so only the ranked text arm can differ -- but
+    # neither set contains the other. Seeing fewer units blocks, which
+    # is safe. Seeing more can cite a unit the model never read, which
+    # is a provenance defect rather than a safety one. Recorded in
+    # docs/ARCHITECTURE.md rather than papered over here.
     assessment = applicability.assess(units, context.confirmed_facts)
 
     # The approved-guidance bar. An ACTIVE release is not

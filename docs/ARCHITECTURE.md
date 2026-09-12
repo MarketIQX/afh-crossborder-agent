@@ -290,6 +290,18 @@ architecture. A safe result produced while the model is assumed to be wrong is.
   it cites all three. The other three signed units are single tests with
   disjunctive limbs, which is not the same defect, so the fix is narrower than
   splitting everything.
+- **The validator and the tool can be judging different units.** Both call
+  the same `assess`, so they cannot disagree about what applicability means, and
+  both are scoped to the same release, in-scope topics and material date. But
+  the tool retrieves with the query string the model chose while the decision
+  layer retrieves with the client's own words, so the ranked text arms can
+  differ and neither set contains the other. Seeing fewer units makes the
+  validator block on a coverage gap, which is safe. Seeing more lets it cite a
+  verified, applicable, on-topic unit the model never read — nothing unsafe
+  reaches the client, but the record would name a basis that did not inform the
+  letter. The fix is to make the validator's set a superset by construction:
+  retrieve with the client's words *and* with every query the model actually
+  used, which is already recorded in `app.agent_tool_calls`.
 - **Clean slate is not reproducibility.** It proves no hand-built cluster state
   is needed. It does not prove a build from a named commit, because it runs the
   working tree.
