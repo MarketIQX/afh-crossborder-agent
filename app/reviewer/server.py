@@ -27,6 +27,7 @@ import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from app import config
 from app.dispatch import dispatcher, providers
 from app.domain import approval as approval_domain
 from app.domain import drafting
@@ -973,7 +974,18 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _do_send(self, form):
-        provider = providers.SimulatedProvider()
+        # Simulated unless an operator has deliberately authorised real
+        # mail in the shell. If authorised and unpreparable this raises
+        # rather than quietly simulating: a reviewer told the message was
+        # handed over must not have been shown a simulation instead.
+        try:
+            provider = providers.selected(
+                config.get(providers.REAL_SEND_APPROVAL_KEY),
+                token_file=config.get("GMAIL_TOKEN_FILE"),
+                expected_address=config.get("GMAIL_EXPECTED_ADDRESS"),
+            )
+        except providers.ProviderRefused as exc:
+            return (str(exc), "bad")
 
         try:
             with workqueue.app_connection() as conn:

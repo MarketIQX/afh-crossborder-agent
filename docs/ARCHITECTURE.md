@@ -312,7 +312,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 
 **Established**
 
-- **142 checks, nine suites, from nothing.** `scripts/verify_clean_slate.py`
+- **144 checks, nine suites, from nothing.** `scripts/verify_clean_slate.py`
   builds a throwaway container from the repository alone, runs every check
   against it, and destroys it.
 - **The applicability gate is load-bearing.** With `applicability.assess`
@@ -417,7 +417,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 ## Verify it yourself
 
 ```
-# build a throwaway database from this repository, run all 142 checks,
+# build a throwaway database from this repository, run all 144 checks,
 # destroy it. The primary instance is never touched.
 .venv/Scripts/python.exe scripts/verify_clean_slate.py
 

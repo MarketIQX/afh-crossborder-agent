@@ -670,6 +670,60 @@ def ingest14_ingestion_can_refresh_but_never_asks_for_consent():
     )
 
 
+def ingest15_mailbox_scope_narrows_and_composes():
+    """WHEN and WHAT narrow independently and survive together."""
+    from app.integrations.gmail_ingest import ingest_search
+
+    cases = [
+        ("neither", None, "", None),
+        ("cursor only", "2026/09/12", "", "after:2026/09/12"),
+        ("scope only", None, "subject:(NRI)", "subject:(NRI)"),
+        (
+            "both compose",
+            "2026/09/12",
+            "subject:(NRI)",
+            "after:2026/09/12 subject:(NRI)",
+        ),
+        ("scope whitespace is trimmed", None, "   subject:(NRI)   ",
+         "subject:(NRI)"),
+        ("blank scope is not a filter", None, "   ", None),
+    ]
+
+    for label, cursor, scope, expected in cases:
+        actual = ingest_search(cursor, scope)
+
+        if actual != expected:
+            raise RuntimeError(
+                f"INGEST15 FAIL [{label}]: cursor={cursor!r} "
+                f"scope={scope!r} produced {actual!r}, expected "
+                f"{expected!r}"
+            )
+
+    # The unfiltered default must stay reachable, because a dedicated
+    # advisory mailbox legitimately wants the whole inbox. Absent
+    # configuration must not silently become a filter.
+    if ingest_search(None, None) is not None:
+        raise RuntimeError(
+            "INGEST15 FAIL: an unconfigured scope became a filter, so a "
+            "dedicated advisory mailbox would silently ingest nothing"
+        )
+
+    # And the scope must not be able to erase the cursor, which would
+    # re-ingest the entire history on every run.
+    composed = ingest_search("2026/01/01", "subject:(NRI)")
+
+    if "after:2026/01/01" not in composed:
+        raise RuntimeError(
+            f"INGEST15 FAIL: the scope erased the cursor; every run "
+            f"would re-ingest the whole mailbox. Got {composed!r}"
+        )
+
+    print(
+        "INGEST15 MAILBOX SCOPE NARROWS AND COMPOSES: PASS "
+        f"({len(cases)} shapes, cursor survives the scope)"
+    )
+
+
 CHECKS = (
     ingest01_new_message_creates_untriaged_case,
     ingest02_duplicate_provider_message_is_absorbed,
@@ -684,6 +738,7 @@ CHECKS = (
     ingest12_subject_reference_from_stranger_is_quarantined,
     ingest13_reply_header_from_stranger_is_quarantined,
     ingest14_ingestion_can_refresh_but_never_asks_for_consent,
+    ingest15_mailbox_scope_narrows_and_composes,
     ingest11_ingested_case_reaches_the_agent_only_after_triage,
 )
 

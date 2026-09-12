@@ -185,12 +185,35 @@ def _resolve_mailbox(conn, address):
     return row[0]
 
 
-def fetch(service, cursor):
-    """Fetch a bounded batch of messages newer than the cursor."""
-    query = {"userId": "me", "maxResults": MAX_MESSAGES}
+def ingest_search(cursor, scope):
+    """The Gmail search this run should use, or None for everything.
+
+    Two independent narrowings, and they compose. The cursor is about
+    WHEN -- only mail newer than the last run. The scope is about WHAT --
+    only mail the firm has marked as a client enquiry. Either may be
+    absent; with both absent the whole mailbox is listed, which is only
+    correct for a dedicated advisory address.
+    """
+    terms = []
 
     if cursor:
-        query["q"] = f"after:{cursor}"
+        terms.append(f"after:{cursor}")
+
+    scope = (scope or "").strip()
+
+    if scope:
+        terms.append(scope)
+
+    return " ".join(terms) or None
+
+
+def fetch(service, cursor, scope=""):
+    """Fetch a bounded batch of messages newer than the cursor."""
+    query = {"userId": "me", "maxResults": MAX_MESSAGES}
+    search = ingest_search(cursor, scope)
+
+    if search:
+        query["q"] = search
 
     listing = service.users().messages().list(**query).execute()
     stubs = listing.get("messages", []) or []
@@ -222,10 +245,16 @@ def main(argv):
         mailbox_id = _resolve_mailbox(conn, address)
         cursor = core.read_cursor(conn, mailbox_id)
 
+        scope = (config.get("GMAIL_INGEST_QUERY") or "").strip()
+
         print(f"MAILBOX: {address}")
         print(f"CURSOR: {cursor or 'none, first run'}")
+        print(
+            f"SCOPE: {scope or 'WHOLE MAILBOX -- only correct for a '
+                               'dedicated advisory address'}"
+        )
 
-        messages = fetch(service, cursor)
+        messages = fetch(service, cursor, scope)
         print(f"FETCHED: {len(messages)} message(s)")
 
         if dry_run:

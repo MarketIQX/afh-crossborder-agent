@@ -263,6 +263,14 @@ CONTRACT = (
         "The mailbox the token must belong to. Checked before any "
         "read or send, so a token for the wrong account is refused.",
     ),
+    ContractKey(
+        "GMAIL_INGEST_QUERY", "gmail", False, False,
+        "label:client-enquiries",
+        "Gmail search that defines what counts as a client enquiry. "
+        "Empty means the whole mailbox, which is only correct for a "
+        "dedicated advisory address. Deciding which mail is an enquiry "
+        "is the firm's judgement, not something the agent infers.",
+    ),
 )
 
 CONTRACT_BY_NAME = {key.name: key for key in CONTRACT}
@@ -287,6 +295,7 @@ DELIBERATELY_NOT_IN_CONTRACT = frozenset(
         "GMAIL_SEND_SMOKE_APPROVED",
         "GMAIL_TEST_RECIPIENT",
         "GMAIL_ROUNDTRIP_STATE_FILE",
+        "CONSOLE_REAL_SEND_APPROVED",
     }
 )
 

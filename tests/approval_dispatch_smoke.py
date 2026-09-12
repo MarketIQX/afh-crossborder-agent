@@ -821,6 +821,48 @@ def approve20_revoking_without_a_grant_is_refused():
     )
 
 
+def approve21_real_sending_is_opt_in_and_never_substituted():
+    """Simulated unless authorised; refused rather than substituted."""
+    for approval in (None, "", "no", "false", "0", "maybe"):
+        chosen = providers.selected(approval)
+
+        if not isinstance(chosen, providers.SimulatedProvider):
+            raise RuntimeError(
+                f"APPROVE21 FAIL: approval={approval!r} selected "
+                f"{type(chosen).__name__}. Real sending must be opt-in."
+            )
+
+    if not providers.real_send_authorised("yes"):
+        raise RuntimeError(
+            "APPROVE21 FAIL: an explicit 'yes' did not authorise real "
+            "sending, so the switch cannot be turned on at all"
+        )
+
+    # Authorised and unpreparable must refuse, not simulate.
+    missing = Path("does-not-exist-gmail-token.json")
+
+    try:
+        chosen = providers.selected(
+            "yes",
+            token_file=str(missing),
+            expected_address="nobody@example.test",
+        )
+    except providers.ProviderRefused:
+        pass
+    else:
+        raise RuntimeError(
+            f"APPROVE21 FAIL: real sending was authorised with no usable "
+            f"token and selection returned {type(chosen).__name__} "
+            f"instead of refusing. A reviewer would be told their "
+            f"message was sent when it was simulated."
+        )
+
+    print(
+        "APPROVE21 REAL SENDING IS OPT-IN AND NEVER SUBSTITUTED: PASS "
+        "(6 non-approvals simulate, unpreparable approval refuses)"
+    )
+
+
 CHECKS = (
     approve01_runtime_cannot_approve,
     approve02_reviewer_cannot_dispatch,
@@ -842,6 +884,7 @@ CHECKS = (
     approve18_agent_has_no_send_or_approve_tool,
     approve19_draft_to_a_stranger_is_refused,
     approve20_revoking_without_a_grant_is_refused,
+    approve21_real_sending_is_opt_in_and_never_substituted,
 )
 
 
