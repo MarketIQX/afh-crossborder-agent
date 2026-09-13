@@ -305,6 +305,142 @@ makes the ladder worth anything.
 Three attempts at one test fixture were refused by these constraints before one
 was accepted. The refusals were right and the test was wrong each time.
 
+## The observable decision basis
+
+A decision is accounted for by four things, in the order they became
+available:
+
+    X0    the state supplied before reasoning began
+    O     what the tools returned during the run, in order
+    G     what the deterministic gates concluded
+    M     what the model said about its own reasoning, where it said
+          anything
+
+    X0 + O + G + M  ->  D
+
+`X0` alone is not "everything the agent knew", and describing it that
+way would be the easiest mistake to make here: the context manifest is
+the *initial* state, and the tools told the agent things afterwards. A
+receipt that stopped at `X0` would describe a decision made on less
+information than was actually available.
+
+Each part carries its origin — `SYSTEM_VERIFIED`, `MODEL_STATED`,
+`HUMAN_STATED` or `UNAVAILABLE` — and origin is never inferred from a
+field name. The payload key called `rationale` is written by the
+deterministic evaluation, not by the model; a receipt that guessed from
+the name would present the application's own finding as the model's
+testimony, which is worse than having no split at all.
+
+`HUMAN_STATED` is currently always `UNAVAILABLE`. The correction
+receipt is a contract and nothing implements it, so the class exists to
+make that absence visible rather than to imply a capability.
+
+### The state vector
+
+State is typed and semantic, not numeric:
+
+    X = [F, U, E, K, A, T, C, P, W]
+
+facts, unknowns, evidence, governed knowledge, applicability, temporal
+state, conflicts, policy and authority, work state. Most of these are
+categorical, three-valued, set-valued or temporal. Attaching weights to
+them would make uncertainty look measured without measuring it, so
+there are no confidence scores and nothing here produces one.
+
+A later comparison of two states is a typed semantic difference — which
+facts changed, which unknown was resolved, which applicability moved —
+not arithmetic. It is not implemented, because the correction and
+follow-up state it would compare does not exist yet.
+
+## Effective authority is an intersection
+
+Nicole acts for a human and holds nothing of her own. But "Nicole has
+the Partner's authority" is too broad to defend. What she can actually
+do is the intersection of four things:
+
+    the human principal's authority
+      AND the runtime's own privileges
+      AND the tool surface
+      AND the case and service scope
+
+The second term bites independently of the first, and that is what
+makes it an intersection rather than an inheritance. A Partner may
+approve a client letter; the runtime Nicole executes inside holds no
+`INSERT` on `app.approvals`, so no grant held by any human can make her
+authorise one. `AUTHZ02` attempts exactly that and requires the refusal.
+
+There is no per-agent IAM identity and no generic policy engine, and
+neither should be claimed. The future production contract is:
+
+    authorize(human_principal, agent_identity, case/service, tool,
+              operation) -> ALLOW | DENY
+
+Today that decision is distributed across database privileges, the
+four-tool surface, and the deterministic checks inside the tools. It is
+deliberately not in a prompt: `app/agent/tools.py` refuses a retrieval
+aimed outside the run's bound service inside the tool itself, and the
+`ServiceScopeHook` that also refuses it is defence in depth rather than
+the boundary. A hook is observability and containment; it is not where
+authorization is decided.
+
+## What "cannot be rewritten" means here
+
+Measured, per role, rather than asserted:
+
+| Role | `app.run_context_manifests` |
+|---|---|
+| `agents_app` (runtime) | `SELECT`, column-level `INSERT`. `UPDATE` and `DELETE` both return `InsufficientPrivilege`. |
+| `agents_reviewer` | `SELECT` only. |
+| `agents_admin` (schema owner) | everything. It created the table. |
+
+So the defensible claim is narrow: **the runtime that records a
+context cannot afterwards change or remove it.** That is worth having,
+because the runtime is the component whose account of itself would
+otherwise be unfalsifiable.
+
+It is not cryptographic non-repudiation and must not be described as
+one. A digest proves two representations differ; it is integrity
+evidence, not an independent anchor, and the schema owner can alter
+anything. Protected audit storage outside the application's own control
+is the production answer and is not built.
+
+## Three audiences for one receipt
+
+A receipt is business-readable by design, which is exactly why it is
+not handed to everyone unchanged. Every field carries a sensitivity
+class and the rendering boundary applies it:
+
+| View | Who | What it carries |
+|---|---|---|
+| `ENGINEERING_TRACE` | debugging and evals | everything |
+| `PARTNER_RECEIPT` | a professional on their own case | everything about the case; technical detail dropped |
+| `DEMO_RECEIPT` | anyone outside the case | structure, counts and digests; no client content |
+
+Redaction is a projection for reading. The authoritative record keeps
+everything, the digest is computed over the unredacted receipt, and a
+redacted view is never re-digested — two documents that were never the
+same should not invite comparison.
+
+## The agent runtime we actually have
+
+`strands-agents 1.55.1`. Hooks are in use for two bounded controls, and
+`opentelemetry-api`/`-sdk 1.44.0` are present as transitive
+dependencies and are **not** used by any code here: no spans are
+emitted and there is no collector to emit them to. So there is no
+`trace_id` to correlate, and adding an exporter would be integration
+work with no consumer. The durable trace this system relies on is in
+the database — `app.agent_runs`, `app.agent_tool_calls`,
+`app.run_context_manifests` — which survives a process, a restart and a
+provider change, and which an OpenTelemetry span would duplicate rather
+than improve.
+
+The business correlation identifier is `case_id`. It is designated
+rather than introduced: the enquiry, every run, every manifest, every
+proposal and every receipt already resolve to the case, and a second
+identifier meaning the same thing would create two answers to one
+question. It is independent of any tracing system's ids, and a
+composite foreign key stops a manifest naming a case its run does not.
+
 ## Two receipts, and the difference between them
 
 A decision receipt is a projection over the rows that already own the
@@ -384,7 +520,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 
 **Established**
 
-- **248 checks, sixteen suites, from nothing.** `scripts/verify_clean_slate.py`
+- **337 checks, eighteen suites, from nothing.** `scripts/verify_clean_slate.py`
   builds a throwaway container from the repository alone, runs every check
   against it, and destroys it.
 - **The applicability gate is load-bearing.** With `applicability.assess`
@@ -496,10 +632,185 @@ architecture. A safe result produced while the model is assumed to be wrong is.
   is needed. It does not prove a build from a named commit, because it runs the
   working tree.
 
+## Two questions a single label used to answer at once
+
+`SYSTEM_VERIFIED` said one thing and was read as two. A system can
+perfectly verify that a tool returned a particular string; that does
+not make the string professionally correct. `app/domain/provenance.py`
+splits the question:
+
+    PROVENANCE          where a claim came from
+    SYSTEM_DERIVED       the deterministic evaluation computed it
+    MODEL_STATED          the model asserted it
+    HUMAN_STATED           a professional typed it
+    TOOL_OBSERVED           a tool returned it without interpretation
+    SOURCE_CITED             the corpus was consulted and this came back
+
+    AUTHORITY            how much the system trusts it
+    CONFIRMED_FACT        a professional's own row
+    PROPOSED_FACT          the model's own claim, unconfirmed
+    VERIFIED_KNOWLEDGE      the top rung of the ladder, and only that rung
+    UNVERIFIED_SOURCE        every other rung, honestly
+    CONFLICTED                 declared to conflict with another unit
+    UNKNOWN                      a material predicate nobody has answered
+
+Neither axis is inferred from a field name. `app.case_facts.origin` and
+`app.knowledge_units.verification_status` are read from the columns
+that record them. A cited unit's authority is read through
+`app.active_knowledge_units`, the view migration 005 left the runtime
+role with SELECT on after revoking the base table — a unit belonging to
+a superseded release is therefore genuinely invisible to this query,
+not merely filtered, and is reported the same as a citation to nothing
+rather than assumed still verified.
+
+The two axes are independent by construction: a fact successfully
+extracted from the client's own words (provenance resolves cleanly) is
+not thereby confirmed (authority does not move with it), and a
+professional's own assertion carries `HUMAN_STATED` provenance whether
+or not the predicate is later superseded by someone else's.
+
+## A tool call succeeding is not the same claim as trusted
+
+`get_service_knowledge` already computes this distinction internally —
+it separates units it will vouch for from ones it consulted but would
+not use, by verification status and by applicability — and the trace
+already stored that summary. The receipt's tool trajectory was
+discarding it, reporting only `OUTCOME: OK`, which reads as "this
+returned something usable" when it may mean "this found only unverified
+material and used none of it."
+
+Each call in the trajectory now carries `trust_signals`: whichever of
+`units`, `consulted_unverified`, `applicability_unknown` and
+`not_applicable` its own `result_summary` already recorded, surfaced
+generically rather than computed fresh. A call that failed carries no
+trust signal at all — it found nothing, and must not be read as having
+found nothing trustworthy specifically, which is a different and
+narrower claim.
+
+## A run that cannot record its own context does not reason
+
+The run row and its context manifest are two separate commits on an
+autocommit connection. The first is already durable by the time the
+second is attempted, so if the second fails, the naive outcome is a run
+stuck `RUNNING` for ever, with no end time and no reason — indistinguishable
+from one still in flight, and unrecoverable by any retry or sweep. This
+is the same shape of defect this project closed once already in the
+run/manifest boundary itself; it reappeared here because closing one
+race does not close the next one next to it.
+
+The invariant: **a context-bearing run that cannot durably record its
+manifest must not invoke the model, and must end `FAILED` with a
+reason naming the cause.** `runner.py` now wraps the manifest write in
+its own handler, finalises the run before re-raising, and raises
+`ContextNotRecorded` rather than letting the caller assume the run
+happened. `CTXFAIL01` fails if the model runs anyway; `CTXFAIL02`
+fails if the run is left `RUNNING`; `CTXFAIL06` proves a retry is a
+new, separately recorded attempt rather than blocked by or confused
+with the one that failed.
+
+## A decision is history; what happens to the case afterward is not
+
+The digest a Correction Receipt will reference has to mean the same
+thing indefinitely. `DRSTABLE01-05` prove a sequence of everything that
+can legitimately happen to a case after its decision — a letter
+written, approved, revoked, a fact later confirmed — leaves the
+decision's own digest untouched. `DRSTABLE05` is the structural half:
+the receipt's queries never touch `draft_messages`, `approvals`,
+`dispatches` or `reviewer_case_grants` at all, so nothing downstream
+can reach it by construction, not merely by observed behaviour.
+
+One real correction happened while proving this. `written_by_this_run`
+originally filtered by the fact's live status, and confirming a fact a
+run had proposed moved the digest of a decision made weeks earlier — a
+genuine defect, reproduced and closed. Fixing the test that caught it
+required understanding how confirmation actually happens:
+`app.case_facts` grants no role `UPDATE`, ever (migration 021) —
+confirmation is always a second, separate row. So the specific defect
+as first written could not happen through any real path; the general
+principle (what a run wrote does not depend on its current status)
+still needed its own direct proof, `DRSTABLE06`, independent of
+whether today's confirmation mechanism happens to protect it.
+
+## The legacy verified units, again
+
+The five `PROFESSIONALLY_VERIFIED` units signed before the identity fix
+carry a provenance caveat, recorded rather than edited away. For any
+judge-facing demonstration of governed professional verification: **do
+not present those five as fresh proof of the corrected path.** They are
+internally consistent — the signature trigger means the recorded
+reviewer matches the session that wrote it — but the reviewer id itself
+was browser-selectable at the time. A unit re-signed after the identity
+fix, through the now server-bound console, is the honest demonstration
+of the governed path; these five are not it, and are not re-reviewed in
+this slice.
+
+## Two blockers: an implicit identity, and history that could rot
+
+Neither of these was a new problem introduced by this gate. Both were
+questions the prior QC pass asked and this one answered by measuring
+rather than arguing.
+
+### An unconfigured console still acted as someone
+
+`_actor()` refused an invalid or inactive binding correctly, and then
+undid that discipline for the one case that matters most: nothing
+configured at all fell back to `reviewers[0][0]`. Reproduced against a
+console bound to nothing (`200`, should refuse) versus one bound to an
+id that does not exist or an inactive reviewer (both already `403`).
+The asymmetry was the tell — two of three cases were already right.
+
+**No configured principal now means no authority**, the same answer as
+a wrong one. `IDENT06-09`. The same question applied to agent
+attribution: a person who comes to own two active profiles had that
+ambiguity broken by creation order — a deterministic answer with no
+authorisation behind it. `profile_for_owner` now refuses when the
+count is not exactly one, and `AGENT_ACTING_PROFILE_ID` resolves the
+ambiguity when set, validated against the configured principal rather
+than trusted. `AGID06-09`.
+
+### A cited unit's history could be rewritten by superseding its release
+
+Reproduced directly, outside any suite, before touching any code: seed
+a `PROFESSIONALLY_VERIFIED` unit, cite it from a run, read the receipt,
+supersede the release, read the same receipt again.
+
+    BEFORE  {'authority': 'VERIFIED_KNOWLEDGE', ...}
+    AFTER   {'authority': 'UNVERIFIED_SOURCE', ...}
+    digest  97859de0f5c7... -> 2fd9cde2b829...
+
+`_cited_units` read `app.active_knowledge_units` — current, live data —
+at receipt-build time, for a citation that happened whenever the run
+actually ran. The defect is the same shape as the one the context
+manifest closed for case facts, in the other kind of evidence a
+decision rests on.
+
+The retrieval that backs a citation already happens once, in
+`_gather_knowledge`, before the model reasons — the same point the
+manifest is captured. `deterministic_knowledge_snapshot` snapshots it there:
+each retrieved unit's `citation()` — id, key, topic, locator,
+verification status, effective dates, never the statement text — with
+both provenance axes attached. `_cited_units` now prefers this when a
+manifest carries it; the knowledge section says which answer it gave,
+`system_support_evidence_as_of: RUN` or `CURRENT`, the same pattern the facts
+section already used.
+
+Re-running the same reproduction after the fix:
+
+    BEFORE  {'authority': 'VERIFIED_KNOWLEDGE', ...}  as_of: RUN
+    AFTER   {'authority': 'VERIFIED_KNOWLEDGE', ...}  as_of: RUN
+    digest  f8a8db33604f... -> f8a8db33604f... (unchanged)
+
+Current retrieval is deliberately untouched: `active_knowledge_units`
+still excludes the superseded unit, checked directly
+(`active_knowledge_units` row count for the superseded unit: 0). The
+two questions — what did this run see, what is current — now have two
+separate answers instead of one query serving both and getting the
+historical one wrong.
+
 ## Verify it yourself
 
 ```
-# build a throwaway database from this repository, run all 248 checks,
+# build a throwaway database from this repository, run all 337 checks,
 # destroy it. The primary instance is never touched.
 .venv/Scripts/python.exe scripts/verify_clean_slate.py
 

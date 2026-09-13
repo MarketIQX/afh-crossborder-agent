@@ -78,6 +78,10 @@ from app.reviewer.style_helpers import esc  # noqa: F401
 
 ACTING_REVIEWER_SETTING = "CONSOLE_ACTING_REVIEWER"
 
+# Presentation, from configuration. Nothing decides anything by
+# it: an agent called something else behaves identically.
+AGENT_NAME = config.get("AGENT_DISPLAY_NAME", "Nicole")
+
 
 def page(title, body, reviewers, reviewer_id, flash=None, crumb="", nav=None, counts=0):
     acting = next(
@@ -102,7 +106,8 @@ def page(title, body, reviewers, reviewer_id, flash=None, crumb="", nav=None, co
 <style>{style.CSS}</style></head><body>
 <div class="app">
 <header class="toolbar">
-  <a class="brand" href="/">Cross-border compliance</a>
+  <a class="brand" href="/">{esc(AGENT_NAME)}</a>
+  <span class="tagline">AI Operating Partner</span>
   <span class="sep"></span>
   {crumb}
   <span class="spacer"></span>
@@ -343,12 +348,33 @@ def _context(
     facts = [("Decision", revision["decision_state"])]
 
     if receipt_data:
+        identity = receipt_data["identity"]
+        # Names live outside the digest, so they are read from the
+        # section that exists to be displayed.
+        shown = receipt_data["display"]
+
         facts += [
             ("Run", receipt_data["run"]["run_id"]),
             ("Outcome", receipt_data["run"]["result_state"]),
-            ("Runner", receipt_data["system"]["agent_runtime"]),
-            ("Model", receipt_data["system"]["model_id"]),
-            ("Prompt", receipt_data["system"]["prompt_version"]),
+            # Four identities, not one. The agent acted for a human;
+            # the provider, runtime and model behind it are
+            # replaceable without either of those changing.
+            ("Agent", shown["agent_profile"] or "none recorded"),
+            (
+                "Acting for",
+                shown["human_principal"] or "none recorded",
+            ),
+            ("Provider", identity["provider"] or "unknown"),
+            ("Runtime", identity["runtime"] or "unknown"),
+            ("Model", identity["model"]),
+            # `system` is engineering detail and the Partner view
+            # drops it, so this row appears only where the whole
+            # trace is being read.
+            *(
+                [("Prompt", receipt_data["system"]["prompt_version"])]
+                if receipt_data.get("system")
+                else []
+            ),
             (
                 "Knowledge release",
                 receipt_data["knowledge"]["release_relied_on"]
@@ -366,7 +392,21 @@ def _context(
                 "Actionable",
                 "yes" if receipt_data["actionable"] else "no",
             ),
+            # Whether the facts above are what the run was handed, or
+            # merely what the case says today. The difference is the
+            # whole value of the receipt.
+            (
+                "Facts as of",
+                "the run"
+                if receipt_data["facts"]["as_of"] == "RUN"
+                else "now (no context manifest)",
+            ),
         ]
+
+        if receipt_data["context"]["context_digest"]:
+            facts.append(
+                ("Context", receipt_data["context"]["context_digest"])
+            )
     elif run:
         facts += [("Run", run[0]), ("Runner", run[2]), ("Model", run[3])]
 
@@ -720,9 +760,17 @@ def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     # An explanation that cannot be assembled must not take the
     # decision off the screen, so a failure here degrades the panel
     # rather than the page.
+    #
+    # Rendered for the Partner, who is authorised on this case: the
+    # read was checked before this page was built, so nothing about
+    # their own client is withheld from them. What the view drops is
+    # the engineering detail they have no use for.
     try:
         with conn.cursor() as cur:
-            receipt_data = receipt.build(cur, revision["revision_id"])
+            receipt_data = receipt.view(
+                receipt.build(cur, revision["revision_id"]),
+                receipt.PARTNER_RECEIPT,
+            )
     except Exception:  # noqa: BLE001
         receipt_data = None
 
@@ -805,10 +853,13 @@ class Handler(BaseHTTPRequestHandler):
         ).strip()
 
         if not bound:
-            # Nothing pinned this process to a person. Fall back to a
-            # deterministic choice rather than to whatever was asked
-            # for: unpinned still must not mean browser-chosen.
-            return reviewers[0][0] if reviewers else ""
+            # Nothing pinned this process to a person. That is not a
+            # weaker form of identity to be defaulted around -- it is
+            # the absence of one. An unconfigured console has no
+            # authority, the same as a wrongly configured one; every
+            # access check downstream refuses "" exactly as it refuses
+            # an id that does not resolve.
+            return ""
 
         wanted = bound.lower()
 

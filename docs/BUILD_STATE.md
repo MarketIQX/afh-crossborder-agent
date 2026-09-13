@@ -778,3 +778,181 @@ change do not carry the caveat.
   `docs/ARCHITECTURE.md`, marked PLANNED. Nothing implements it.
 - Service membership, assignment, work stages and the dashboard are
   untouched.
+
+
+## P2.2A.2 final QC: five hardening contracts closed
+
+Supersedes the block above. **320 checks across eighteen suites,
+passing from a clean slate.** No migration beyond 028, already
+committed at the prior checkpoint. Two real defects were found and
+closed by writing the test before the fix, exactly as the method
+requires; three mutation tests confirm each guard actually depends on
+the code it claims to.
+
+### What was found
+
+**A run could get stuck RUNNING forever if its context manifest could
+not be written.** The run row and its manifest are two separate
+commits on autocommit; the first durable, the second attempted after.
+Forcing the second to fail reproduced exactly the failure this project
+closed once already, in a different place: `('...', 'RUNNING', None,
+False)`. `runner.py` now finalises the run as `FAILED` with a named
+reason before re-raising, and never invokes the model when the context
+it would reason over cannot be recorded. `CTXFAIL01-06`.
+
+**Confirming a fact a run had proposed moved that run's decision
+digest weeks later.** `written_by_this_run` filtered on the fact's
+current status, so a professional's confirmation retroactively changed
+what the run appeared to have asserted. Reproduced (`682b40c2ea3b`
+became `202f0d4d8bae`) and closed by dropping the status filter. Fixing
+the test that caught it required correcting an assumption: confirmation
+is not an `UPDATE` — no role holds that grant on `case_facts`, ever
+(migration 021) — it is always a second, separate row. `DRSTABLE01-06`.
+
+### What was added
+
+**Provenance and authority, as two axes instead of one.**
+`app/domain/provenance.py`. `SYSTEM_VERIFIED` was answering "where did
+this come from" and "how much is it trusted" with the same label. A
+cited knowledge unit's authority now reads through
+`app.active_knowledge_units` — the runtime role has held no privilege
+on the base table since migration 005 — so a unit belonging to a
+superseded release is reported the same as a citation to nothing,
+honestly, rather than assumed still verified. `PROV01-04`.
+
+**Tool calls carry what they already knew about trust.**
+`get_service_knowledge` already separates verified-and-usable material
+from material it consulted but would not vouch for; the receipt was
+discarding that and reporting bare `OUTCOME: OK`. Now surfaced as
+`trust_signals`, read generically from whatever a call's own
+`result_summary` already recorded — nothing computed fresh, nothing
+duplicated beyond counts and ids the summary had already trimmed
+itself to. A failed call carries no trust signal: it found nothing, and
+must not read as having found nothing trustworthy specifically.
+`TOOLTRUST01-03`.
+
+**Identity moved out of the digest.** The receipt covered every field
+but its own digest, and two of those fields were display names.
+Renaming an agent rewrote the digest of a decision made months earlier
+— reproduced (`8f0306cb92d5` became `888aed7ec010` from a rename
+alone) and closed by moving names to a `display` section the digest
+excludes; the identity section now carries ids only. `HID01-04`.
+
+**One business correlation id, designated rather than invented.**
+`case_id`. Every artifact in a journey — enquiry, runs, manifests,
+proposals, receipts — already resolves to it. A composite foreign key
+(`run_context_manifests_case_matches_run`) makes a manifest naming a
+different case than its own run impossible to write, not merely
+unobserved. `CORR01-03`.
+
+**Effective authority is an intersection, stated and tested as one.**
+`AUTHZ01` proves the reach half (an agent cannot access a case its
+principal cannot); `AUTHZ02` proves the second term bites
+independently — a principal's own grant to approve a letter does not
+reach through the agent into an `INSERT` on `app.approvals`, which the
+runtime role does not hold regardless of who is behind it.
+
+**The golden dataset contract, with no professional content in it.**
+`app/evals/enquiry_contract.py`. Four banks; the held-out and
+adversarial ones refuse to load into anything marked `for_runtime`.
+`agent_visible()` is unconditional and additive — it keeps only
+`subject`, `body`, `material_date`, so a new grader-only field added to
+the contract later is excluded by default rather than by remembering
+to add it. `GOLD01-09`. No case files exist yet, and none is invented.
+
+### The caveat, again, more plainly
+
+The five `PROFESSIONALLY_VERIFIED` units signed before the identity fix
+must not be presented in any judge-facing demonstration as fresh proof
+of the corrected verification path. They are internally consistent —
+attributable to the session that wrote them — but the reviewer id
+itself was browser-selectable when they were signed. A unit re-signed
+after this fix, through the now server-bound console, is the honest
+demonstration. These five are not that, and are not re-reviewed here.
+
+### Not done, and not claimed
+
+- No production authentication, no per-agent IAM, no cryptographic
+  non-repudiation. The runtime cannot rewrite its own manifest — that
+  is measured per role, not asserted, and the schema owner can alter
+  anything.
+- The correction receipt remains a written contract only.
+- Service membership, assignment, work stages, the dashboard: untouched.
+- The live demo database is still at migration 027. Applying 028,
+  registering an agent profile, and running one live smoke test are
+  operator actions, not taken here without being asked.
+
+
+## P2.2A.2: two blockers closed, gate accepted
+
+Supersedes the block above. **337 checks across eighteen suites,
+passing from a clean slate.** Migration 028 extended (still
+uncommitted) with `deterministic_knowledge_snapshot` on
+`run_context_manifests`, and `agent_profiles`/`agent_runs` unchanged
+from the prior block.
+
+The previous report called P2.2A.2 "final acceptance closed" while
+its own text said the console still fell back to the first active
+reviewer when nothing was configured. That was a real contradiction,
+not a rhetorical one, and it is why this block exists separately
+rather than folded into the last.
+
+### Both blockers, reproduced before being fixed
+
+**An unconfigured console had authority.** `_actor()` refused an
+invalid or inactive binding correctly — both already read `403` — and
+then fell back to `reviewers[0][0]` for the one case that matters
+most: nothing configured at all (`200`). Closed: empty now means no
+authority, the same answer as a wrong binding. The same question,
+asked of agent attribution: two active profiles owned by one person
+were resolved by creation order, a deterministic answer nobody
+authorised. `profile_for_owner` now refuses ambiguity;
+`AGENT_ACTING_PROFILE_ID` resolves it when set, validated against the
+configured principal rather than trusted. `IDENT06-09`, `AGID06-09`.
+
+**A cited unit's authority could be rewritten by superseding its
+release.** Reproduced outside any suite before writing a line of fix:
+a `PROFESSIONALLY_VERIFIED` citation read back `VERIFIED_KNOWLEDGE`
+before superseding its release and `UNVERIFIED_SOURCE` after, digest
+moved. `_cited_units` read current corpus state at receipt-build time
+for a citation that happened whenever the run actually ran — the same
+shape of defect the context manifest already closed for case facts,
+recurring in the other kind of evidence a decision rests on. Closed by
+snapshotting `deterministic_knowledge_snapshot` in the manifest, from the
+retrieval `_gather_knowledge` already performs before the model
+reasons — nothing new computed, only kept rather than discarded.
+Re-running the same reproduction after the fix: authority unchanged,
+digest unchanged, and current retrieval independently confirmed to
+still exclude the superseded unit. `KGHIST01-05`, `TOOLOBS01-04`.
+
+Both mutation-tested: reverting either fix, the suite that closed it
+fails for the reason it should.
+
+### Correction-receipt prerequisite, recorded and not solved here
+
+Confirmation is append-only — a new, separate row, never an edit of
+the run's own proposed fact (migration 021). That is what makes a
+decision's digest stable against later confirmation. It also means no
+row currently says which earlier proposed value a confirmation
+resolves; today that link could only be inferred from case, predicate,
+value and time, which is ambiguous the moment two proposals for the
+same predicate exist.
+
+**This must be closed before a Correction Receipt can safely reference
+a parent decision digest**, so that a future `ΔX` between decision
+states is computed from an explicit link rather than a guess. Not
+implemented in this slice. Recorded here as the prerequisite it is,
+not deferred silently.
+
+### Not done, and not claimed
+
+- No production authentication, no per-agent IAM, no cryptographic
+  non-repudiation.
+- The correction receipt remains a written contract; its prerequisite
+  above is newly identified, not newly closed.
+- Service membership, assignment, work stages, the dashboard:
+  untouched.
+- The live demo database is still at migration 027. Applying 028,
+  configuring the acting principal and agent, registering Nicole, and
+  running one live smoke test are operator actions, not taken here
+  without being asked.

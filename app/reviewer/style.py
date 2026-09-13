@@ -136,6 +136,14 @@ body {
 
 .toolbar .spacer { margin-left: auto; }
 
+/* The product subtitle beside the name. */
+.toolbar .tagline {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: none;
+}
+
 /* Who the process is acting as. Text, not a control: the acting
    identity is bound at startup, so there is nothing here to choose. */
 .toolbar .acting {

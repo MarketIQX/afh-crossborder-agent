@@ -187,11 +187,26 @@ class ContractKey:
 
 CONTRACT = (
     ContractKey(
+        "AGENT_ACTING_PROFILE_ID", "console", False, False,
+        "",
+        "Which personal agent a background run acts as, when its "
+        "owner has more than one active profile. Empty is fine when "
+        "the owner has exactly one; resolution refuses rather than "
+        "guessing if it is ambiguous.",
+    ),
+    ContractKey(
+        "AGENT_DISPLAY_NAME", "console", False, False,
+        "Nicole",
+        "The agent's product-facing name. Presentation only: nothing "
+        "decides anything by it.",
+    ),
+    ContractKey(
         "CONSOLE_ACTING_REVIEWER", "console", False, False,
         "",
         "Who the console acts as, by reviewer id or email. Bound "
-        "at startup; no request can change it. Empty binds the "
-        "first active reviewer. Not authentication.",
+        "at startup; no request can change it. Empty means no "
+        "authority at all, not a default reviewer. Not "
+        "authentication.",
     ),
     ContractKey(
         "POSTGRES_ADMIN_PASSWORD", "database", True, True,

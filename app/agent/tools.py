@@ -24,7 +24,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 
-from app.domain import applicability, decision, gaps, knowledge
+from app.domain import applicability, decision, gaps, knowledge, provenance
 from app.domain.context import tokenize
 
 TOOL_SCHEMA_VERSION = "tool-schema-v1"
@@ -37,6 +37,41 @@ TOOL_NAMES = (
 )
 
 MAX_PROPOSED_FACTS = 20
+
+
+def _returned_evidence(result):
+    """Safe references from this exact knowledge-tool result.
+
+    This is execution evidence, captured with the result rather than
+    reconstructed later from the current knowledge release.  It does not
+    contain professional statement text and says nothing about model attention.
+    """
+    release_id = result.get("knowledge_release_id")
+    refs = []
+
+    buckets = (
+        result.get("units") or (),
+        (result.get("consulted_unverified") or {}).get("units") or (),
+        (result.get("applicability_unknown") or {}).get("units") or (),
+        (result.get("not_applicable") or {}).get("units") or (),
+    )
+
+    for bucket in buckets:
+        for unit in bucket:
+            if not isinstance(unit, dict) or not unit.get("unit_id"):
+                continue
+            status = unit.get("verification_status")
+            refs.append(
+                {
+                    "unit_id": unit["unit_id"],
+                    "knowledge_release_id": release_id,
+                    "verification_status_at_return": status,
+                    "source_locator": unit.get("source_locator"),
+                    **provenance.knowledge_claim(status),
+                }
+            )
+
+    return sorted(refs, key=lambda entry: entry["unit_id"])
 
 
 class ToolRefused(Exception):
@@ -375,6 +410,7 @@ class AgentTools:
                 "applicability_unknown": len(unknown_applicability),
                 "not_applicable": len(not_applicable),
                 "coverage_gaps": result["coverage_gaps"],
+                "returned_evidence": _returned_evidence(result),
             },
         )
 

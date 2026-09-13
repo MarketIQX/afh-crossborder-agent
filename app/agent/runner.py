@@ -23,8 +23,20 @@ from psycopg.errors import UniqueViolation
 
 from app import config
 from app.agent import tools as tools_module
+from app.domain import agent_identity
 from app.domain import context as context_module
+from app.domain import context_manifest
 from app.domain import decision, knowledge
+
+
+class ContextNotRecorded(Exception):
+    """The run could not durably record the state it was given.
+
+    A system failure, not a refusal. A refusal is the agent declining
+    to proceed on the merits; this is the application unable to keep
+    its own record, and a decision whose basis cannot be reconstructed
+    afterwards should not be taken at all.
+    """
 
 
 class RunRefused(Exception):
@@ -96,7 +108,16 @@ def _case_exists(conn, case_id):
         return cur.fetchone() is not None
 
 
-def _insert_run(conn, model, case_id, operation_id, release_id, builder):
+def _insert_run(
+    conn,
+    model,
+    case_id,
+    operation_id,
+    release_id,
+    builder,
+    agent_profile_id=None,
+    initiated_by=None,
+):
     run_id = str(uuid.uuid4())
 
     try:
@@ -106,8 +127,11 @@ def _insert_run(conn, model, case_id, operation_id, release_id, builder):
                 INSERT INTO app.agent_runs (
                     id, case_id, operation_id, runner, model_id,
                     prompt_version, prompt_digest, tool_schema_version,
-                    context_builder_version, knowledge_release_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    context_builder_version, knowledge_release_id,
+                    agent_profile_id, initiated_by_reviewer_id
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
                 """,
                 (
                     run_id,
@@ -120,6 +144,8 @@ def _insert_run(conn, model, case_id, operation_id, release_id, builder):
                     tools_module.TOOL_SCHEMA_VERSION,
                     builder,
                     release_id,
+                    agent_profile_id,
+                    initiated_by,
                 ),
             )
     except UniqueViolation as exc:
@@ -199,11 +225,31 @@ def execute(
     operation_id=None,
     token_budget=context_module.DEFAULT_TOKEN_BUDGET,
     conn=None,
+    agent_profile_id=None,
 ):
-    """Run the agent once against one case."""
+    """Run the agent once against one case.
+
+    `agent_profile_id` is the personal agent acting, when there is one.
+    The initiating human is derived from that profile's owner rather
+    than passed separately, so a caller cannot name one Partner's agent
+    while attributing the run to another. Left unset -- the autonomy
+    loop, the eval harness -- the run records no agent, which is
+    accurate rather than convenient.
+    """
     operation_id = operation_id or f"run-{uuid.uuid4()}"
     owns_connection = conn is None
     conn = conn or _connect()
+
+    # Derived, never passed. The initiating human is whoever
+    # owns the acting agent, so a caller cannot hand over one
+    # Partner's agent and attribute the run to another.
+    initiated_by = None
+
+    if agent_profile_id:
+        with conn.cursor() as cur:
+            initiated_by = agent_identity.authority_of(
+                cur, agent_profile_id
+            )
 
     started = time.monotonic()
 
@@ -221,6 +267,8 @@ def execute(
                 operation_id,
                 None,
                 context_module.CONTEXT_BUILDER_VERSION,
+                agent_profile_id,
+                initiated_by,
             )
             _finalise(
                 conn,
@@ -252,7 +300,49 @@ def execute(
             operation_id,
             ctx.knowledge_release_id,
             ctx.context_builder_version,
+            agent_profile_id,
+            initiated_by,
         )
+
+        # Before the model is invoked, from the context that was
+        # actually assembled. Written afterwards it would describe what
+        # the tables say once the run has finished, which is the
+        # substitution this exists to prevent.
+        #
+        # And if it cannot be written, the run does not happen. The row
+        # above is already committed, so failing here without
+        # finalising would leave a run RUNNING for ever, with no reason
+        # and nothing to distinguish it from one still in flight.
+        try:
+            with conn.cursor() as cur:
+                context_manifest.record(
+                    cur,
+                    run_id,
+                    context_manifest.describe(
+                        ctx, agent_profile_id, initiated_by, units
+                    ),
+                    policy_envelope={
+                        "requires_professional_approval": True,
+                        "may_dispatch": False,
+                        "token_budget": token_budget,
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001
+            reason = (
+                f"the run could not record its context manifest, so it "
+                f"did not reason: {exc.__class__.__name__}"
+            )
+
+            _finalise(
+                conn,
+                run_id,
+                "FAILED",
+                int((time.monotonic() - started) * 1000),
+                0,
+                reason,
+            )
+
+            raise ContextNotRecorded(reason) from exc
 
         binding = tools_module.Binding(
             case_id=ctx.case_id,

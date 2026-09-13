@@ -173,13 +173,22 @@ def _cases_awaiting_reasoning(conn, limit):
 def reason_over_cases(conn, report, model):
     """Run the agent on cases that have never been reasoned about."""
     from app.agent import runner
+    from app.domain import acting_agent
+
+    # Nobody is at the keyboard here, so the acting identity is the
+    # one this deployment is configured to run as. Resolved once: it
+    # cannot change between two cases in the same pass.
+    with conn.cursor() as cur:
+        agent_profile_id = acting_agent.profile_id(cur)
 
     for case_id in _cases_awaiting_reasoning(conn, MAX_RUNS_PER_CYCLE):
         if _STOPPING:
             return
 
         try:
-            result = runner.execute(model, case_id)
+            result = runner.execute(
+                model, case_id, agent_profile_id=agent_profile_id
+            )
             report.reasoned += 1
             state = getattr(result, "decision_state", None) or "recorded"
             print(f"  REASONED     {case_id[:8]}  {state}")

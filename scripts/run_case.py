@@ -69,7 +69,16 @@ def main(argv):
     }
 
     try:
-        result = runner.execute(model, case_id)
+        from app.domain import acting_agent
+        from app.reviewer import workqueue
+
+        with workqueue.app_connection() as conn:
+            with conn.cursor() as cur:
+                agent_profile_id = acting_agent.profile_id(cur)
+
+        result = runner.execute(
+            model, case_id, agent_profile_id=agent_profile_id
+        )
     except bedrock.IdentityRefused as exc:
         record["outcome"] = {
             "ran": False,

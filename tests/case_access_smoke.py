@@ -903,6 +903,61 @@ def _post(port, path, fields):
     return urllib.parse.unquote_plus(url)
 
 
+def ident_failclosed_checks():
+    """No explicit principal configured means no authority at all."""
+    unconfigured_httpd, unconfigured_port = _console(None)
+    invalid_httpd, invalid_port = _console(
+        "96100000-0000-0000-0000-00000000ffff"
+    )
+    inactive_httpd, inactive_port = _console(REVIEWER_INACTIVE)
+
+    try:
+        unconfigured, _ = _get(unconfigured_port, f"/case/{CASE_MINE}")
+        invalid, _ = _get(invalid_port, f"/case/{CASE_MINE}")
+        inactive, _ = _get(inactive_port, f"/case/{CASE_MINE}")
+    finally:
+        for httpd in (unconfigured_httpd, invalid_httpd, inactive_httpd):
+            httpd.shutdown()
+            httpd.server_close()
+
+    check(
+        "IDENT06 NO CONFIGURED PRINCIPAL MEANS NO AUTHORITY",
+        unconfigured == 403,
+        f"a console with no acting reviewer configured got "
+        f"{unconfigured} on a case it was never granted; an "
+        f"unconfigured console must not act as anyone",
+    )
+    check(
+        "IDENT07 AN INVALID CONFIGURED PRINCIPAL IS NOT A FALLBACK",
+        invalid == 403,
+        f"a console bound to a reviewer id that does not exist got "
+        f"{invalid}",
+    )
+    check(
+        "IDENT08 AN INACTIVE CONFIGURED PRINCIPAL IS REFUSED",
+        inactive == 403,
+        f"a console bound to an inactive reviewer got {inactive}",
+    )
+
+
+def ident09_ambiguity_is_not_silently_resolved():
+    """Two active reviewers, neither named: the console picks neither."""
+    ambiguous_httpd, ambiguous_port = _console("")
+
+    try:
+        status, _ = _get(ambiguous_port, f"/case/{CASE_MINE}")
+    finally:
+        ambiguous_httpd.shutdown()
+        ambiguous_httpd.server_close()
+
+    check(
+        "IDENT09 AN EMPTY EXPLICIT CONFIGURATION IS STILL UNCONFIGURED",
+        status == 403,
+        f"binding the console to an empty string got {status}; empty "
+        f"must mean the same as absent, not a fallback trigger",
+    )
+
+
 def ident_checks():
     """Two processes, two identities, and no way to swap between them."""
     granted_httpd, granted_port = _console(REVIEWER_GRANTED)
@@ -1023,6 +1078,8 @@ CHECKS = (
     runsafe04_a_later_success_supersedes_a_failure,
     runsafe0607_failed_work_is_labelled_not_pending,
     ident_checks,
+    ident_failclosed_checks,
+    ident09_ambiguity_is_not_silently_resolved,
     send_checks,
 )
 

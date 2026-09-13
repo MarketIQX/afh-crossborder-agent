@@ -38,6 +38,9 @@ STEPS = (
     ("reviewer console", ["tests/reviewer_console_smoke.py", "phase1"]),
     ("case access", ["tests/case_access_smoke.py", "phase1"]),
     ("decision receipt", ["tests/decision_receipt_smoke.py", "phase1"]),
+    ("agent context", ["tests/agent_context_smoke.py", "phase1"]),
+    ("enquiry eval contract",
+     ["tests/enquiry_eval_contract_smoke.py"]),
     ("autonomy", ["tests/autonomy_smoke.py", "phase1"]),
     (
         "approval and dispatch",
@@ -51,6 +54,8 @@ STEPS = (
     ("case access cleanup", ["tests/case_access_smoke.py", "cleanup"]),
     ("receipt fixture cleanup",
      ["tests/decision_receipt_smoke.py", "cleanup"]),
+    ("agent context cleanup",
+     ["tests/agent_context_smoke.py", "cleanup"]),
     ("console fixture cleanup", ["tests/reviewer_console_smoke.py", "cleanup"]),
     ("ingestion fixture cleanup", ["tests/ingestion_smoke.py", "cleanup"]),
     ("agent fixture cleanup", ["tests/agent_slice_smoke.py", "cleanup"]),

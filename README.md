@@ -175,7 +175,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-248 checks across sixteen suites. Every one names what it proves, and the
+337 checks across eighteen suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -204,9 +204,24 @@ Individual suites:
     tests/reviewer_console_smoke.py phase1       VIEW01-VIEW13
     tests/case_access_smoke.py phase1            ACCESS01-ACCESS08
     tests/case_access_smoke.py phase1            RUNSAFE01-RUNSAFE15
-    tests/case_access_smoke.py phase1            IDENT01-IDENT05
+    tests/case_access_smoke.py phase1            IDENT01-IDENT09
     tests/case_access_smoke.py phase1            SEND01-SEND03
     tests/decision_receipt_smoke.py phase1       RECEIPT01-RECEIPT15
+    tests/agent_context_smoke.py phase1          AGID01-AGID09
+    tests/agent_context_smoke.py phase1          CTX01-CTX13
+    tests/agent_context_smoke.py phase1          REASON01-REASON10
+    tests/agent_context_smoke.py phase1          AUTHZ01-AUTHZ02
+    tests/agent_context_smoke.py phase1          HID01-HID04
+    tests/agent_context_smoke.py phase1          CORR01-CORR03
+    tests/agent_context_smoke.py phase1          CTXFAIL01-CTXFAIL06
+    tests/agent_context_smoke.py phase1          DRSTABLE01-DRSTABLE06
+    tests/decision_receipt_smoke.py phase1       VER01-VER03
+    tests/decision_receipt_smoke.py phase1       PRIV01-PRIV04
+    tests/decision_receipt_smoke.py phase1       PROV01-PROV04
+    tests/decision_receipt_smoke.py phase1       TOOLTRUST01-TOOLTRUST03
+    tests/decision_receipt_smoke.py phase1       KGHIST01-KGHIST05
+    tests/decision_receipt_smoke.py phase1       TOOLOBS01-TOOLOBS04
+    tests/enquiry_eval_contract_smoke.py         GOLD01-GOLD09
     tests/autonomy_smoke.py phase1               AUTO01-AUTO10
     tests/approval_dispatch_smoke.py phase1      APPROVE01-APPROVE21
 
