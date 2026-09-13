@@ -48,7 +48,8 @@ from app import config
 from app.agent import tools as tools_module
 from app.agent.model import PROMPT_VERSION, SYSTEM_PROMPT, prompt_digest
 
-DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+# One copy, declared by the adapter that resolves it.
+DEFAULT_MODEL_ID = model_provider.DEFAULT_BEDROCK_MODEL_ID
 DEFAULT_REGION = "us-east-1"
 
 DEFAULT_MAX_TOKENS = 2048

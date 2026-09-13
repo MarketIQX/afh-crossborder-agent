@@ -168,7 +168,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-195 checks across fourteen suites. Every one names what it proves, and the
+196 checks across fourteen suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -185,7 +185,7 @@ Individual suites:
 
     tests/env_contract_smoke.py                  ENV01-ENV09
     tests/applicability_smoke.py                 APPLY01-APPLY14
-    tests/model_provider_smoke.py                MODEL01-MODEL18
+    tests/model_provider_smoke.py                MODEL01-MODEL19
     tests/gap_smoke.py                           GAP01-GAP09
     tests/guard_wiring_smoke.py                  WIRE01-WIRE09
     tests/request_surface_smoke.py               REQ01-REQ08

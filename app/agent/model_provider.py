@@ -30,6 +30,16 @@ GROQ = "groq"
 PROVIDERS = (BEDROCK, ANTHROPIC, GROQ)
 
 # Overridable, and unproven until a real invocation succeeds against it.
+#
+# Bedrock had no default here, which was the one asymmetry
+# between the three providers and it cost the public
+# repository a failing test suite: a clone has no `.env`, so
+# MODEL_PROVIDER fell back to bedrock, the model id resolved
+# to empty, and the build refused. Declared alongside the
+# others so all three resolve the same way.
+DEFAULT_BEDROCK_MODEL_ID = (
+    "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+)
 DEFAULT_ANTHROPIC_MODEL_ID = "claude-sonnet-5"
 DEFAULT_GROQ_MODEL_ID = "openai/gpt-oss-120b"
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -100,16 +110,16 @@ def bedrock_kwargs(
 def _build_bedrock(model_id, max_tokens, temperature, boto_session, region):
     from strands.models import BedrockModel
 
-    resolved = model_id or config.get("BEDROCK_MODEL_ID", "")
+    resolved = model_id or config.get(
+        "BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID
+    )
 
     if not resolved:
-        # The module default lives in `app.agent.bedrock`, which imports
-        # this module. Reading it here would be a second copy of the
-        # same constant as well as a circular import, so the caller
-        # resolves it and this refuses rather than inventing one.
+        # Reachable only if BEDROCK_MODEL_ID is set to an empty string,
+        # which is a deliberate act rather than an absent setting.
         raise ProviderUnavailable(
-            "no Bedrock model id was given and BEDROCK_MODEL_ID is not "
-            "set"
+            "BEDROCK_MODEL_ID is set to an empty value; give it a model "
+            "id or unset it to use the default"
         )
 
     kwargs = bedrock_kwargs(
@@ -288,7 +298,9 @@ def resolved_model_id(provider=None, model_id=None):
         return model_id
 
     if name == BEDROCK:
-        return config.get("BEDROCK_MODEL_ID", "")
+        return config.get(
+            "BEDROCK_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID
+        )
 
     if name == GROQ:
         return config.get("GROQ_MODEL_ID", DEFAULT_GROQ_MODEL_ID)

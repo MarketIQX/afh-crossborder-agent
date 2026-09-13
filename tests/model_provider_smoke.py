@@ -1,4 +1,4 @@
-"""MODEL01-MODEL18. Changing who answers must not change what is asked.
+"""MODEL01-MODEL19. Changing who answers must not change what is asked.
 
 The competition requires Strands Agents as its foundation and describes
 Amazon Bedrock and AgentCore as encouraged rather than required. Bedrock
@@ -314,9 +314,20 @@ def model07_a_refusal_returns_no_model_at_all():
     )
 
 
-def model08_a_bedrock_build_without_a_model_id_refuses():
-    """An unresolved model id must not become a guess."""
-    original = with_config({})
+def model08_an_emptied_model_id_refuses():
+    """A blanked id refuses; an absent one uses the default.
+
+    This check previously asserted that an *absent* BEDROCK_MODEL_ID
+    refused. That was the behaviour, and the behaviour was wrong: a
+    clone has no `.env`, so Bedrock refused for anyone who had not
+    configured it and the public suite failed on a fresh clone while
+    everything was green locally. MODEL19 now covers the absent case.
+
+    What still deserves a refusal is an id set to an empty string. That
+    is a deliberate act rather than a missing setting, and silently
+    substituting a default for it would hide an operator mistake.
+    """
+    original = with_config({"BEDROCK_MODEL_ID": ""})
     outcome = None
     try:
         model_provider.build(
@@ -330,7 +341,7 @@ def model08_a_bedrock_build_without_a_model_id_refuses():
         restore(original)
 
     check(
-        "MODEL08 AN UNRESOLVED MODEL ID REFUSES",
+        "MODEL08 AN EMPTIED MODEL ID REFUSES",
         outcome is not None and "BEDROCK_MODEL_ID" in outcome,
         f"outcome was {outcome!r}",
     )
@@ -616,6 +627,39 @@ def model18_groq_is_contained_by_the_boundary():
     )
 
 
+def model19_every_provider_resolves_with_nothing_configured():
+    """A clone has no `.env`. Every provider must still name a model.
+
+    MODEL10 stubs a config that already carries BEDROCK_MODEL_ID, so it
+    cannot notice the default going missing. This one starts from
+    nothing, which is what a fresh clone actually has.
+
+    That distinction is not hypothetical. The Bedrock default was
+    dropped when the model id moved behind the adapter, and because this
+    machine sets MODEL_PROVIDER=groq the Bedrock branch never ran here.
+    The public repository's own suite failed on a fresh clone while every
+    check was green locally.
+    """
+    original = with_config({})
+    try:
+        resolved = {
+            name: model_provider.resolved_model_id(name)
+            for name in model_provider.PROVIDERS
+        }
+    finally:
+        restore(original)
+
+    empty = sorted(
+        name for name, value in resolved.items() if not (value or "").strip()
+    )
+
+    check(
+        "MODEL19 EVERY PROVIDER RESOLVES WITH NOTHING CONFIGURED",
+        not empty,
+        f"these resolved to nothing: {empty}; resolved={resolved}",
+    )
+
+
 CHECKS = (
     model01_bedrock_is_still_the_default,
     model02_historical_arguments_are_reproduced_exactly,
@@ -624,7 +668,7 @@ CHECKS = (
     model05_an_unknown_provider_is_refused_by_name,
     model06_a_missing_key_refuses_rather_than_substituting,
     model07_a_refusal_returns_no_model_at_all,
-    model08_a_bedrock_build_without_a_model_id_refuses,
+    model08_an_emptied_model_id_refuses,
     model09_the_aws_gate_applies_exactly_to_aws,
     model10_the_model_id_resolves_without_building_anything,
     model11_no_call_site_constructs_a_provider_directly,
@@ -635,6 +679,7 @@ CHECKS = (
     model16_groq_needs_no_aws_identity,
     model17_the_groq_descriptor_names_what_answered,
     model18_groq_is_contained_by_the_boundary,
+    model19_every_provider_resolves_with_nothing_configured,
 )
 
 
