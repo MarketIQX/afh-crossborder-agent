@@ -1,4 +1,4 @@
-"""GAP01-GAP09. A request for help must state what help it needs.
+"""GAP01-GAP14. A request for help must state what help it needs.
 
 The decision layer computed why an enquiry could not be completed long
 before anything turned that into a request. Contract section 3 requires
@@ -70,6 +70,7 @@ def evaluation(
     out_of_scope=(),
     conflicts=(),
     failure=None,
+    provisional=(),
 ):
     """A real Evaluation, so a change to its shape fails here too.
 
@@ -85,7 +86,7 @@ def evaluation(
         conflict_unit_ids=tuple(f"unit-{i}" for i in range(len(conflicts))),
         missing_predicates=tuple(missing),
         coverage_gaps=tuple(coverage),
-        provisional_topics=(),
+        provisional_topics=tuple(provisional),
         out_of_scope_topics=tuple(out_of_scope),
         conflicts=tuple(conflicts),
         requires_professional_verification=True,
@@ -311,6 +312,157 @@ def gap09_the_key_does_not_carry_the_case():
     )
 
 
+# ---------------------------------------------------------------------
+# P2.0. The five states the contract keeps apart, and the one claim that
+# needs a query rather than an inference.
+# ---------------------------------------------------------------------
+
+TOPIC = "capital_gains_on_property"
+
+
+def gap10_corpus_absence_is_claimed_only_when_queried():
+    """"The firm holds nothing on X" is a claim about the corpus.
+
+    `coverage_gaps` minus `provisional_topics` proves something much
+    narrower: no verified applicable unit survived *this* retrieval and
+    partition. A rule can exist, be verified, and be excluded because it
+    does not apply to this client -- and the firm still holds it.
+
+    So the strong wording must depend on a corpus query, and the weak
+    wording must be what is said without one. This check fails before
+    the fix because `question_for` has no way to be told.
+    """
+    subject = evaluation(decision.MISSING_KNOWLEDGE, coverage=(TOPIC,))
+    reasons = gaps.reasons_for(subject, decision.MISSING_KNOWLEDGE)
+
+    unproven = gaps.question_for(subject, reasons, absent=frozenset())
+    proven = gaps.question_for(subject, reasons, absent={TOPIC})
+
+    check(
+        "GAP10 CORPUS ABSENCE IS CLAIMED ONLY WHEN QUERIED",
+        "no recorded" not in unproven.lower()
+        and "holds no guidance" not in unproven.lower()
+        and "available to this case" in unproven.lower()
+        and "no recorded" in proven.lower(),
+        f"without a query: {unproven[:120]!r}; "
+        f"with one: {proven[:120]!r}",
+    )
+
+
+def gap11_unverified_material_asks_for_verification():
+    """Material the firm holds needs verifying, not teaching.
+
+    Sending a teaching request for a topic the firm already has a source
+    on invites the fair criticism that the learning loop manufactures
+    gaps out of an unverified corpus.
+    """
+    subject = evaluation(
+        decision.MISSING_KNOWLEDGE,
+        coverage=(TOPIC,),
+        provisional=(TOPIC,),
+    )
+    reasons = gaps.reasons_for(subject, decision.MISSING_KNOWLEDGE)
+    question = gaps.question_for(subject, reasons, absent=frozenset())
+
+    check(
+        "GAP11 UNVERIFIED MATERIAL ASKS FOR VERIFICATION",
+        "verification" in question.lower()
+        and "not new teaching" in question.lower()
+        and "holds no guidance" not in question.lower(),
+        f"question was {question[:160]!r}",
+    )
+
+
+def gap12_a_missing_fact_is_not_a_missing_rule():
+    """Verified guidance exists; applicability turns on an unknown fact.
+
+    The contract is explicit that this is a request to the client, not a
+    request to a professional for a rule. Nothing in the question may
+    suggest the firm needs to establish guidance.
+    """
+    subject = evaluation(
+        decision.MISSING_FACTS, missing=("residency_status",)
+    )
+    reasons = gaps.reasons_for(subject, decision.MISSING_FACTS)
+    question = gaps.question_for(
+        subject,
+        reasons,
+        {"residency_status": "Residential status for the year."},
+        absent=frozenset(),
+    )
+
+    forbidden = ("no guidance", "no recorded", "establishing the rule",
+                 "verification")
+
+    leaked = [phrase for phrase in forbidden if phrase in question.lower()]
+
+    check(
+        "GAP12 A MISSING FACT IS NOT A MISSING RULE",
+        reasons == (decision.MISSING_FACTS,)
+        and "not yet established" in question
+        and "Residential status for the year." in question
+        and not leaked,
+        f"reasons={reasons}, knowledge language leaked={leaked}",
+    )
+
+
+def gap13_an_operational_failure_is_not_a_knowledge_gap():
+    """A retrieval or storage failure must not be reported as ignorance.
+
+    Contract section 2 separates these because the remedy differs
+    entirely: one is an engineering fault, the other needs a
+    professional. Telling a reviewer the firm lacks guidance when a
+    query failed wastes their time and misstates the system.
+    """
+    subject = evaluation(
+        decision.SYSTEM_FAILURE, failure="active release lookup failed"
+    )
+    reasons = gaps.reasons_for(subject, decision.SYSTEM_FAILURE)
+    question = gaps.question_for(subject, reasons, absent=frozenset())
+
+    check(
+        "GAP13 AN OPERATIONAL FAILURE IS NOT A KNOWLEDGE GAP",
+        decision.SYSTEM_FAILURE in reasons
+        and decision.MISSING_KNOWLEDGE not in reasons
+        and "operation failed" in question.lower()
+        and "active release lookup failed" in question
+        and "guidance" not in question.lower(),
+        f"reasons={reasons}, question={question[:140]!r}",
+    )
+
+
+def gap14_every_material_blocker_stays_visible():
+    """One request, several reasons, none of them hidden.
+
+    Precedence decides what the agent does. It must not decide what the
+    reviewer is told, or they will answer the highest-precedence problem
+    and believe the case is unblocked.
+    """
+    subject = evaluation(
+        decision.MISSING_FACTS,
+        missing=("residency_status",),
+        coverage=(TOPIC, "return_filing"),
+        provisional=("return_filing",),
+        out_of_scope=("company_law",),
+    )
+    reasons = gaps.reasons_for(subject, decision.MISSING_FACTS)
+    question = gaps.question_for(
+        subject, reasons, absent={TOPIC}
+    )
+
+    check(
+        "GAP14 EVERY MATERIAL BLOCKER STAYS VISIBLE",
+        decision.OUT_OF_SCOPE in reasons
+        and decision.MISSING_KNOWLEDGE in reasons
+        and decision.MISSING_FACTS in reasons
+        and "company_law" in question
+        and TOPIC in question
+        and "return_filing" in question
+        and "not yet established" in question,
+        f"reasons={reasons}; question={question[:240]!r}",
+    )
+
+
 CHECKS = (
     gap01_the_recommended_state_is_never_hidden,
     gap02_reasons_are_ordered_by_precedence,
@@ -321,6 +473,11 @@ CHECKS = (
     gap07_deduplication_ignores_wording,
     gap08_deduplication_tracks_substance,
     gap09_the_key_does_not_carry_the_case,
+    gap10_corpus_absence_is_claimed_only_when_queried,
+    gap11_unverified_material_asks_for_verification,
+    gap12_a_missing_fact_is_not_a_missing_rule,
+    gap13_an_operational_failure_is_not_a_knowledge_gap,
+    gap14_every_material_blocker_stays_visible,
 )
 
 

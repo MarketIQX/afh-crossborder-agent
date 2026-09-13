@@ -112,7 +112,7 @@ def dedupe_key(reasons, evaluation):
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def question_for(evaluation, reasons, hints=None):
+def question_for(evaluation, reasons, hints=None, absent=None):
     """The precise unanswered question, built only from recorded facts.
 
     Section 3 forbids leaving a placeholder unresolved, so every clause
@@ -122,6 +122,9 @@ def question_for(evaluation, reasons, hints=None):
     """
     hints = hints or {}
     parts = []
+
+    # `absent` is the set of topics a caller has *proven* the firm holds
+    # nothing on. Absent it, no claim about the corpus is made.
 
     if decision.SYSTEM_FAILURE in reasons:
         parts.append(
@@ -172,30 +175,43 @@ def question_for(evaluation, reasons, hints=None):
         )
 
     if decision.MISSING_KNOWLEDGE in reasons:
-        # Two different problems, two different people, two different
-        # actions -- and the decision layer already separates them.
+        # Three different problems, three different actions, and only
+        # one of them is a teaching request.
         #
-        # `coverage_gaps` is every in-scope topic with no verified
-        # applicable guidance. `provisional_topics` is the subset where
-        # material does exist and simply has not been signed off. The
-        # difference matters: one needs a professional to establish a
-        # rule, the other needs a professional to verify a rule that is
-        # already written down.
+        # `provisional_topics` is where material exists and has not been
+        # signed off. That needs verification of what is already
+        # recorded, not new teaching, and sending a teaching request for
+        # it invites the fair criticism that the learning loop
+        # manufactures gaps out of an unverified corpus.
         #
-        # Collapsing both into "no approved guidance covers this" was
-        # the defect. It would have sent a teaching request for a topic
-        # the firm already holds a source on, which invites exactly the
-        # criticism that the learning loop manufactures gaps out of an
-        # unverified corpus.
+        # The remainder splits on evidence. A topic in `proven_absent`
+        # has been checked against the corpus and is genuinely not
+        # there, so a professional has to establish the rule. A topic
+        # that has not been checked gets the narrower statement, because
+        # `coverage_gaps` only proves that no verified applicable unit
+        # survived this retrieval -- a rule can exist, be verified, and
+        # be excluded for not applying to this client.
+        proven_absent = set(absent or ())
         provisional = set(evaluation.provisional_topics)
-        absent = sorted(set(evaluation.coverage_gaps) - provisional)
+        uncovered = set(evaluation.coverage_gaps) - provisional
+
+        missing_entirely = sorted(uncovered & proven_absent)
+        unavailable = sorted(uncovered - proven_absent)
         unverified = sorted(provisional)
 
-        if absent:
+        if missing_entirely:
             parts.append(
-                f"The firm holds no guidance at all on: "
-                f"{', '.join(absent)}. Establishing the rule needs a "
-                f"professional."
+                f"The firm has no recorded guidance on: "
+                f"{', '.join(missing_entirely)}. Establishing the rule "
+                f"needs a professional."
+            )
+
+        if unavailable:
+            parts.append(
+                f"No verified applicable guidance is currently "
+                f"available to this case on: {', '.join(unavailable)}. "
+                f"Whether the firm holds anything on it has not been "
+                f"established here."
             )
 
         if unverified:
@@ -206,7 +222,7 @@ def question_for(evaluation, reasons, hints=None):
                 f"already recorded, not new teaching."
             )
 
-        if not absent and not unverified:
+        if not (missing_entirely or unavailable or unverified):
             parts.append(
                 "The approved guidance available to this case does not "
                 "establish an answer."
@@ -228,6 +244,64 @@ def question_for(evaluation, reasons, hints=None):
             )
 
     return "\n\n".join(parts)
+
+
+def corpus_absent(cur, service_id, topics):
+    """Topics this service has no unit on anywhere, proven by query.
+
+    Corpus-level means every release, not the active one, so this reads
+    `app.knowledge_units` rather than the active view.
+
+    The runtime role holds no privilege of any kind on that table -- by
+    design, and proven at runtime when a read raised permission denied.
+    So the privilege is checked first and an empty set is returned when
+    the caller cannot see the corpus. That is not a fallback: a caller
+    with no visibility has no evidence, and `question_for` then says
+    only what this retrieval established. Claiming absence from a table
+    you cannot read is exactly the inference this function exists to
+    replace.
+
+    `has_table_privilege` is asked rather than catching the error,
+    because a failed statement would abort the surrounding transaction
+    and the gap write shares it.
+    """
+    wanted = [str(topic) for topic in topics or ()]
+
+    if not wanted:
+        return frozenset()
+
+    # Without a service there is nothing to scope the corpus to, and the
+    # NOT EXISTS below would match nothing and report every topic as
+    # proven absent -- the strongest claim this function can make,
+    # produced by an argument not being passed. An unknown service
+    # proves nothing.
+    if not service_id:
+        return frozenset()
+
+    cur.execute(
+        "SELECT has_table_privilege("
+        "current_user, 'app.knowledge_units', 'SELECT')"
+    )
+
+    if not cur.fetchone()[0]:
+        return frozenset()
+
+    cur.execute(
+        """
+        SELECT t.topic
+        FROM unnest(%s::text[]) AS t(topic)
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM app.knowledge_units u
+            JOIN app.knowledge_releases r ON r.id = u.release_id
+            WHERE u.topic = t.topic
+              AND r.service_id = %s
+        )
+        """,
+        (wanted, service_id),
+    )
+
+    return frozenset(row[0] for row in cur.fetchall())
 
 
 def fact_hints(cur, service_id):
@@ -267,7 +341,15 @@ def responsible_reviewer(cur, case_id):
     return row[0] if row else None
 
 
-def record(cur, case_id, revision_id, evaluation, state, hints=None):
+def record(
+    cur,
+    case_id,
+    revision_id,
+    evaluation,
+    state,
+    hints=None,
+    service_id=None,
+):
     """Persist the gap. Returns its id, or None if it already existed.
 
     None is the deduplication working, not a failure: the same gap
@@ -279,7 +361,14 @@ def record(cur, case_id, revision_id, evaluation, state, hints=None):
     if not reasons:
         return None
 
-    question = question_for(evaluation, reasons, hints)
+    # The corpus query runs here because this is where a cursor exists.
+    # What it can prove depends on the caller's privileges, and that is
+    # the point: the claim is scoped to the evidence available.
+    proven_absent = corpus_absent(
+        cur, service_id, evaluation.coverage_gaps
+    )
+
+    question = question_for(evaluation, reasons, hints, proven_absent)
 
     if not question.strip():
         # Refuse rather than write a gap that cannot state its question.

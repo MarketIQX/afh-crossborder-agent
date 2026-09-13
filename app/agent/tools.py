@@ -618,6 +618,7 @@ class AgentTools:
                 self._evaluation,
                 state,
                 gaps.fact_hints(cur, self._binding.service_id),
+                self._binding.service_id,
             )
 
         return ProposalRecord(
