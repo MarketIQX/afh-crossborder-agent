@@ -274,8 +274,14 @@ def seed():
     print("CONSOLE FIXTURE SEEDED: PASS")
 
 
-def start():
-    httpd = console.make_server(0)
+def start(acting_reviewer=GRANTED):
+    """A console bound to one acting identity.
+
+    Case pages are authorised per reviewer, so this suite runs as the
+    reviewer it granted. Which reviewer that is has to be decided here,
+    at startup: it is not something a request can ask for.
+    """
+    httpd = console.make_server(0, acting_reviewer)
     port = httpd.server_address[1]
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
@@ -338,10 +344,15 @@ def view02_the_clients_words_are_shown(port):
 def view03_no_authentication_is_claimed(port):
     _s, body, _ = get(port, f"/case/{STATE['letter_case']}")
 
+    # The wording changed with the identity binding and the check has
+    # to follow it, because the old text claimed something weaker than
+    # what is now true. "Selected" was accurate while the browser chose
+    # the actor; it does not any more. What has not changed, and must
+    # not, is that the page still refuses to imply a sign-in.
     require(
-        "VIEW03 THE PAGE STATES THERE IS NO SIGN-IN",
-        "selected, not verified" in body,
-        "authorisation without authentication, said plainly",
+        "VIEW03 THE PAGE CLAIMS NO SIGN-IN AND NAMES THE ACTOR",
+        "not authenticated" in body and "Acting as" in body,
+        "server-bound identity, and no claim of authentication",
     )
 
 
@@ -421,21 +432,33 @@ def view07_a_stale_digest_is_refused(port):
 
 
 def view08_an_ungranted_reviewer_is_refused(port):
-    _s, _body, url = post(
-        port,
-        f"/case/{STATE['letter_case']}/decide",
-        {
-            "reviewer": UNGRANTED,
-            "draft_id": STATE["draft_id"],
-            "seen_digest": STATE["digest"],
-            "decision": "APPROVED",
-        },
-    )
+    """Act as the ungranted reviewer by being them, not by saying so.
+
+    This used to name UNGRANTED on the form. The form no longer decides
+    who is acting, so proving the refusal means running a process bound
+    to that reviewer -- which is a better proof of the same thing.
+    """
+    ungranted_httpd, ungranted_port = start(UNGRANTED)
+
+    try:
+        _s, _body, url = post(
+            ungranted_port,
+            f"/case/{STATE['letter_case']}/decide",
+            {
+                "draft_id": STATE["draft_id"],
+                "seen_digest": STATE["digest"],
+                "decision": "APPROVED",
+            },
+        )
+    finally:
+        ungranted_httpd.shutdown()
+        ungranted_httpd.server_close()
 
     require(
-        "VIEW08 AN UNGRANTED REVIEWER CANNOT APPROVE THROUGH THE FORM",
-        "no active grant" in flash_of(url),
-        "",
+        "VIEW08 AN UNGRANTED REVIEWER CANNOT APPROVE",
+        "no active grant" in flash_of(url)
+        or "do not have access" in flash_of(url),
+        f"the refusal read {flash_of(url)[:60]!r}",
     )
 
 
@@ -492,7 +515,44 @@ def view11_a_second_send_is_refused(port):
     )
 
 
+def view13_the_decision_receipt_is_on_the_page(port):
+    """The account of the decision, where the decision is taken."""
+    _s, body, _ = get(port, f"/case/{STATE['letter_case']}")
+
+    labels = [
+        "How this was produced",
+        "Outcome",
+        "Knowledge release",
+        "Still unknown",
+        "Actionable",
+        "Receipt",
+    ]
+    missing = [label for label in labels if label not in body]
+
+    # The digest is 64 hex characters and is rendered as the value of
+    # the Receipt row. Its presence is what distinguishes a real
+    # projection from a handful of restated columns.
+    digested = re.search(r"<dd>[0-9a-f]{64}</dd>", body)
+
+    require(
+        "VIEW13 THE PAGE CARRIES THE DECISION RECEIPT",
+        not missing and digested is not None,
+        f"missing {missing}; digest rendered: {digested is not None}",
+    )
+
+
 def view12_unknown_routes_behave(port):
+    """An unknown matter must not be distinguishable from a forbidden one.
+
+    This required 404 while every case was readable. Now that access is
+    authorised per case, an unknown reference answers 403: the grant
+    check runs first and nobody holds a grant on a case that does not
+    exist.
+
+    403 is the property worth keeping. Answering 404 for a case that is
+    absent and 403 for one that is merely someone else's would let an
+    unauthorised caller enumerate which references the firm holds.
+    """
     try:
         get(port, "/case/99999999-9999-9999-9999-999999999999")
         missing = 200
@@ -508,8 +568,8 @@ def view12_unknown_routes_behave(port):
         allow = exc.headers.get("Allow")
 
     require(
-        "VIEW12 UNKNOWN MATTER IS 404 AND UNKNOWN ACTION IS 405",
-        missing == 404 and action == 405 and allow == "GET, POST",
+        "VIEW12 AN UNKNOWN MATTER IS REFUSED, NOT DESCRIBED",
+        missing == 403 and action == 405 and allow == "GET, POST",
         f"{missing}/{action}",
     )
 
@@ -527,6 +587,7 @@ CHECKS = (
     view10_sending_reports_the_outcome_honestly,
     view11_a_second_send_is_refused,
     view12_unknown_routes_behave,
+    view13_the_decision_receipt_is_on_the_page,
 )
 
 

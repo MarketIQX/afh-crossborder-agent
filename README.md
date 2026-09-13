@@ -83,7 +83,14 @@ Knowledge carries its verification state explicitly:
     UNVERIFIED              nothing recorded
     SOURCE_RECORDED         a locator exists, content not captured
     SOURCE_VERIFIED         passage captured and digested
-    PROFESSIONALLY_VERIFIED a qualified professional signed it off
+    PROFESSIONALLY_VERIFIED a reviewer recorded as qualified signed it
+
+The top rung records represented authority, not a checked credential.
+`reviewers.professional_qualification` is what the firm entered about
+that person; nothing here tests it against any register. What the
+schema does enforce is who signed, when, and that the signature
+matches the database session that made it — so the claim is
+attributable, which is the part software can actually guarantee.
 
 Claiming either stronger state requires a captured passage, a digest and a
 timestamp, enforced by a constraint. Everything seeded here is
@@ -168,7 +175,7 @@ use them, and each fails fast naming the missing key rather than guessing.
 
 ## Verifying
 
-201 checks across fourteen suites. Every one names what it proves, and the
+248 checks across sixteen suites. Every one names what it proves, and the
 suites that write to the database refuse to run against a target that has
 not been marked disposable.
 
@@ -194,7 +201,12 @@ Individual suites:
     tests/authority_boundary_smoke.py phase1     AUTH01-AUTH24
     tests/agent_slice_smoke.py phase1            AGENT01-AGENT29
     tests/ingestion_smoke.py phase1              INGEST01-INGEST15
-    tests/reviewer_console_smoke.py phase1       VIEW01-VIEW12
+    tests/reviewer_console_smoke.py phase1       VIEW01-VIEW13
+    tests/case_access_smoke.py phase1            ACCESS01-ACCESS08
+    tests/case_access_smoke.py phase1            RUNSAFE01-RUNSAFE15
+    tests/case_access_smoke.py phase1            IDENT01-IDENT05
+    tests/case_access_smoke.py phase1            SEND01-SEND03
+    tests/decision_receipt_smoke.py phase1       RECEIPT01-RECEIPT15
     tests/autonomy_smoke.py phase1               AUTO01-AUTO10
     tests/approval_dispatch_smoke.py phase1      APPROVE01-APPROVE21
 

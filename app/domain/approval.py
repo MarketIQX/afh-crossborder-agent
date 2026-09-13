@@ -282,14 +282,15 @@ def _active_reviewer(cur, reviewer_id):
 
 
 def _has_active_grant(cur, reviewer_id, case_id):
-    cur.execute(
-        """
-        SELECT 1 FROM app.reviewer_case_grants
-        WHERE reviewer_id = %s AND case_id = %s AND revoked_at IS NULL
-        """,
-        (reviewer_id, case_id),
-    )
-    return cur.fetchone() is not None
+    """Delegated so there is one rule, not two that can drift.
+
+    This function's own query omitted the reviewer's active state and
+    relied on each caller checking it separately, which three of them
+    did. `access.may_access_case` asks both questions in one statement.
+    """
+    from app.domain import access
+
+    return access.may_access_case(cur, reviewer_id, case_id)
 
 
 def record_decision(conn, draft_id, reviewer_id, decision, seen_digest,

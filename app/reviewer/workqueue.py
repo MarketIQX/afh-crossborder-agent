@@ -9,6 +9,7 @@ already decided.
 import psycopg
 
 from app import config
+from app.domain import actionability
 
 
 def app_connection():
@@ -54,6 +55,19 @@ def queue(conn, reviewer_id=None):
                     r.created_at
                 FROM app.proposal_revisions r
                 JOIN app.action_proposals p ON p.id = r.proposal_id
+                JOIN app.agent_runs a ON a.id = r.run_id
+                -- app.domain.actionability.CURRENT_WORK_SQL, and a
+                -- check fails if this drifts from it. A proposal from
+                -- a run that did not finish is evidence, not a
+                -- recommendation: it stays readable on the case with
+                -- its run's outcome, but it does not get to be the
+                -- newest thing a reviewer is asked to decide. Without
+                -- the join the ORDER BY takes whichever revision is
+                -- most recent, and a run that died after a tool wrote
+                -- is the most recent thing there is. The earlier form
+                -- was <> 'FAILED', which still admitted RUNNING and
+                -- REFUSED.
+                WHERE a.result_state = 'SUCCEEDED'
                 ORDER BY p.case_id, r.created_at DESC
             )
             SELECT
@@ -228,10 +242,16 @@ def latest_revision(conn, case_id):
             """
             SELECT r.id::text, r.decision_state, r.summary, r.payload,
                    r.missing_predicates, r.cited_unit_ids,
-                   r.requires_professional_verification, r.run_id::text
+                   r.requires_professional_verification, r.run_id::text,
+                   a.result_state
             FROM app.proposal_revisions r
             JOIN app.action_proposals p ON p.id = r.proposal_id
-            WHERE p.case_id = %s
+            JOIN app.agent_runs a ON a.id = r.run_id
+            -- app.domain.actionability.CURRENT_WORK_SQL, and a check
+            -- fails if this drifts from it. The case page offers the
+            -- actions, so this is the selection that decides whether a
+            -- half-finished run can be drafted from.
+            WHERE p.case_id = %s AND a.result_state = 'SUCCEEDED'
             ORDER BY r.created_at DESC
             LIMIT 1
             """,
@@ -251,4 +271,9 @@ def latest_revision(conn, case_id):
         "cited_unit_ids": list(row[5] or []),
         "requires_verification": row[6],
         "run_id": row[7],
+        "run_state": row[8],
+        # Always true given the filter above. Returned anyway so the
+        # callers read the answer rather than assuming one, and so the
+        # assumption is visible if the filter is ever relaxed.
+        "actionable": actionability.run_is_actionable(row[8]),
     }

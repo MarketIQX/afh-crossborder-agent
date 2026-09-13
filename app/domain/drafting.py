@@ -13,6 +13,7 @@ refuses those rather than producing a message a reviewer then has to
 notice is wrong.
 """
 
+from app.domain import actionability
 from app.domain import approval as approval_domain
 
 DRAFTING_RULES_VERSION = "drafting-rules-v1"
@@ -54,10 +55,12 @@ def _load_revision(cur, revision_id):
             r.missing_predicates,
             p.case_id::text,
             c.reference,
-            c.service_id::text
+            c.service_id::text,
+            a.result_state
         FROM app.proposal_revisions r
         JOIN app.action_proposals p ON p.id = r.proposal_id
         JOIN app.cases c ON c.id = p.case_id
+        JOIN app.agent_runs a ON a.id = r.run_id
         WHERE r.id = %s
         """,
         (revision_id,),
@@ -75,6 +78,7 @@ def _load_revision(cur, revision_id):
         "case_id": row[4],
         "reference": row[5],
         "service_id": row[6],
+        "run_state": row[7],
     }
 
 
@@ -163,6 +167,18 @@ def compose(conn, revision_id):
 
         if revision is None:
             raise DraftingRefused(f"revision {revision_id} does not exist")
+
+        # First, because a run that did not finish has not
+        # reached any decision state worth interpreting. Checked here
+        # rather than only in the view, since the revision id remains
+        # a perfectly valid argument to this function.
+        if not actionability.run_is_actionable(revision["run_state"]):
+            raise DraftingRefused(
+                f"the run that produced this proposal is "
+                f"{revision['run_state']}, not "
+                f"{actionability.ACTIONABLE_RUN_STATE}. No client "
+                f"message is drafted from a run that did not finish."
+            )
 
         state = revision["decision_state"]
 

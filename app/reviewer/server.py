@@ -16,10 +16,18 @@ privilege on approvals and the reviewer role holds none on dispatches,
 so the process that sends cannot authorise, and the account that
 authorises cannot send.
 
-There is no authentication. The reviewer is chosen from a control in the
-header and the page says so plainly. Grants and role separation are
-real; nothing yet verifies that the person clicking is who they claim to
-be. That is the next boundary, not a solved one.
+There is still no authentication, and the page says so. What changed is
+narrower and load-bearing: the acting identity is bound when the process
+starts, from CONSOLE_ACTING_REVIEWER or the `--acting-reviewer` flag,
+and no query string or form field can change it. Case grants are only an
+authorization boundary if the identity being checked is not the
+caller's to choose, and it used to be.
+
+So the honest description is a controlled identity, server-bound.
+Nothing here verifies that the person at the keyboard is the reviewer
+this process is bound to; that needs real authentication and is not
+built. Selecting an assignee is data and may come from the browser.
+Selecting the actor is not.
 """
 
 import html
@@ -29,8 +37,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from app import config
 from app.dispatch import dispatcher, providers
+from app.domain import access
 from app.domain import approval as approval_domain
 from app.domain import drafting
+from app.domain import receipt
 from app.reviewer import (
     inbox,
     queries,
@@ -66,12 +76,18 @@ NEEDS = {
 from app.reviewer.style_helpers import esc  # noqa: F401
 
 
+ACTING_REVIEWER_SETTING = "CONSOLE_ACTING_REVIEWER"
+
+
 def page(title, body, reviewers, reviewer_id, flash=None, crumb="", nav=None, counts=0):
-    options = "".join(
-        f'<option value="{esc(rid)}"'
-        f'{" selected" if rid == reviewer_id else ""}>{esc(name)}</option>'
-        for rid, name, _email, _qual, _verify in reviewers
-    ) or '<option value="">no reviewers</option>'
+    acting = next(
+        (
+            name
+            for rid, name, _email, _qual, _verify in reviewers
+            if rid == reviewer_id
+        ),
+        "nobody",
+    )
 
     flash_html = ""
 
@@ -90,13 +106,8 @@ def page(title, body, reviewers, reviewer_id, flash=None, crumb="", nav=None, co
   <span class="sep"></span>
   {crumb}
   <span class="spacer"></span>
-  <span class="caution">No sign-in &mdash; reviewer selected, not verified</span>
-  <form method="get" action="">
-    <label for="reviewer">Acting as</label>
-    <select id="reviewer" name="reviewer" onchange="this.form.submit()">
-      {options}
-    </select>
-  </form>
+  <span class="caution">No sign-in &mdash; identity is server-bound, not authenticated</span>
+  <span class="acting">Acting as {esc(acting)}</span>
 </header>
 {nav_html(nav, counts) if nav else ''}
 {flash_html}
@@ -192,7 +203,6 @@ This does not go to the client; it needs a colleague.</div>""",
             + """<div class="held">The agent has decided. No letter has
 been written yet.</div>""",
             f"""<form method="post" action="/case/{esc(case_id)}/draft">
-  <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
   <input type="hidden" name="revision_id" value="{esc(revision['revision_id'])}">
   <button type="submit">Write the letter</button>
   <span class="hint">You will read it before anything is sent.</span>
@@ -246,7 +256,6 @@ been written yet.</div>""",
   Approving and sending are separate powers. This account can authorise
   a letter but cannot send one.</div>""",
             f"""<form method="post" action="/case/{esc(case_id)}/send">
-  <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
   <input type="hidden" name="approval_id" value="{esc(draft["approval_id"])}">
   <button type="submit">Send it</button>
   <span class="hint">Carried out by the runtime, which cannot approve.</span>
@@ -259,8 +268,7 @@ been written yet.</div>""",
         + letter,
         f"""<div class="acts">
   <form method="post" action="/case/{esc(case_id)}/decide">
-    <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
-    <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
+      <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
     <input type="hidden" name="seen_digest"
            value="{esc(draft["content_digest"])}">
     <button type="submit" name="decision" value="APPROVED">Send as it stands</button>
@@ -273,8 +281,7 @@ been written yet.</div>""",
     <summary>Edit and send</summary>
     <form method="post" action="/case/{esc(case_id)}/edit">
       <div class="pad">
-        <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
-        <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
+              <input type="hidden" name="draft_id" value="{esc(draft["draft_id"])}">
         <input type="text" name="subject" id="edit-subject"
                value="{esc(draft["subject"])}">
         <textarea name="body_text" id="edit-body">{esc(draft["body_text"])}</textarea>
@@ -300,7 +307,16 @@ def _context(
     items,
     case_id,
     requests=(),
+    receipt_data=None,
 ):
+    """The panel beside the decision.
+
+    `receipt_data` is the decision receipt, and when it is present the
+    account of how this was produced comes from it rather than from the
+    tuples above. The fallback path exists for the case where building
+    it fails: a receipt is an explanation, and failing to explain a
+    decision must not take the decision off the screen.
+    """
     blocks = []
 
     # Ahead of the enquiry and the trace. A reviewer opening a case
@@ -326,7 +342,32 @@ def _context(
 
     facts = [("Decision", revision["decision_state"])]
 
-    if run:
+    if receipt_data:
+        facts += [
+            ("Run", receipt_data["run"]["run_id"]),
+            ("Outcome", receipt_data["run"]["result_state"]),
+            ("Runner", receipt_data["system"]["agent_runtime"]),
+            ("Model", receipt_data["system"]["model_id"]),
+            ("Prompt", receipt_data["system"]["prompt_version"]),
+            (
+                "Knowledge release",
+                receipt_data["knowledge"]["release_relied_on"]
+                or "none recorded",
+            ),
+            (
+                "Cited units",
+                str(len(receipt_data["knowledge"]["cited_unit_ids"])),
+            ),
+            (
+                "Still unknown",
+                ", ".join(receipt_data["facts"]["unknown"]) or "nothing",
+            ),
+            (
+                "Actionable",
+                "yes" if receipt_data["actionable"] else "no",
+            ),
+        ]
+    elif run:
         facts += [("Run", run[0]), ("Runner", run[2]), ("Model", run[3])]
 
     if draft:
@@ -335,15 +376,27 @@ def _context(
         if draft["approved_digest"]:
             facts.append(("Approved digest", draft["approved_digest"]))
 
+    if receipt_data:
+        facts.append(("Receipt", receipt_data["receipt_digest"]))
+
     rows = "".join(
         f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in facts
     )
 
-    trace_html = "".join(
-        f'<div class="{"refused" if err else ""}">{esc(seq)}. {esc(name)}'
-        f'{" &mdash; refused: " + esc(err) if err else ""}</div>'
-        for seq, name, _a, _r, err in trace
-    )
+    if receipt_data:
+        trace_html = "".join(
+            f'<div class="{"refused" if call["error"] else ""}">'
+            f'{esc(call["sequence"])}. {esc(call["tool"])}'
+            f'{" &mdash; refused: " + esc(call["error"]) if call["error"] else ""}'
+            f"</div>"
+            for call in receipt_data["tools"]
+        )
+    else:
+        trace_html = "".join(
+            f'<div class="{"refused" if err else ""}">{esc(seq)}. {esc(name)}'
+            f'{" &mdash; refused: " + esc(err) if err else ""}</div>'
+            for seq, name, _a, _r, err in trace
+        )
 
     blocks.append(
         f"""<div class="block"><h2>How this was produced</h2>
@@ -367,6 +420,15 @@ def _context(
 
     return "".join(blocks)
 
+
+ACCESS_REFUSED = (
+    "You do not have access to this matter, so nothing was done."
+)
+
+ACCESS_DENIED = (
+    "<p>You do not have access to this matter. If you should, "
+    "ask whoever administers the firm's cases to grant it.</p>"
+)
 
 NAV = (
     ("/", "Inbox"),
@@ -424,7 +486,7 @@ def _matter_row(item, reviewer_id):
         by = '<span class="by">Anika drafted</span>'
 
     return f"""<a class="matter"
-   href="/case/{esc(item['case_id'])}?reviewer={esc(reviewer_id)}">
+   href="/case/{esc(item['case_id'])}">
   <div>
     <div class="who">{esc(item['sender'] or 'no sender recorded')}</div>
     <div class="subject">{esc(item['subject'])}</div>
@@ -589,6 +651,34 @@ def render_learning(conn, people, reviewer_id, flash=None):
     )
 
 
+# What to say on a case with no current recommendation, keyed on what
+# became of its most recent run. `None` is the only one of these that
+# means nothing has read the matter.
+EMPTY_CASE = {
+    None: (
+        "Not looked at yet.",
+        "The agent has not read this matter. Its conclusion and the "
+        "letter it proposes will appear here once it runs.",
+    ),
+    "RUNNING": (
+        "Anika is still working.",
+        "A run is in progress. Nothing written so far is a "
+        "recommendation, so there is nothing to decide yet.",
+    ),
+    "FAILED": (
+        "Anika could not finish.",
+        "The run broke before it completed. Whatever it wrote is kept "
+        "on the record as evidence of the attempt, but none of it is a "
+        "recommendation and no letter can be written from it.",
+    ),
+    "REFUSED": (
+        "Anika declined to proceed.",
+        "The run stopped deliberately rather than guessing. That "
+        "refusal is the outcome, not a recommendation to act on.",
+    ),
+}
+
+
 def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     header = queries.case_header(conn, case_id)
 
@@ -606,13 +696,35 @@ def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
     crumb = f'<span class="matter">{esc(reference)}</span>'
 
     if revision is None:
-        body = """<div class="panes"><div class="primary"><div class="empty">
-  <h1 style="font-size:20px;margin:0 0 6px">Not looked at yet.</h1>
-  The agent has not read this matter. Its conclusion and the letter it
-  proposes will appear here once it runs.
-</div></div><div class="context"></div></div>"""
+        # No current recommendation, which is not the same as never
+        # having been read. A run that broke, declined, or has not
+        # finished leaves its proposal on the case without standing,
+        # and "not looked at yet" would be false about it.
+        headline, explain = EMPTY_CASE.get(
+            run[9] if run else None, EMPTY_CASE[None]
+        )
+
+        reason = (
+            f'<div class="held">Recorded reason: {esc(run[10])}</div>'
+            if run and run[10]
+            else ""
+        )
+
+        body = f"""<div class="panes"><div class="primary"><div class="empty">
+  <h1 style="font-size:20px;margin:0 0 6px">{esc(headline)}</h1>
+  {esc(explain)}
+</div>{reason}</div><div class="context"></div></div>"""
 
         return page(reference, body, reviewers, reviewer_id, flash, crumb)
+
+    # An explanation that cannot be assembled must not take the
+    # decision off the screen, so a failure here degrades the panel
+    # rather than the page.
+    try:
+        with conn.cursor() as cur:
+            receipt_data = receipt.build(cur, revision["revision_id"])
+    except Exception:  # noqa: BLE001
+        receipt_data = None
 
     scroller, bar = _primary(case_id, revision, draft, conn, reviewer_id)
     kind, label = CHIP.get(
@@ -636,6 +748,7 @@ def render_case(conn, case_id, reviewers, reviewer_id, items, flash=None):
         items,
         case_id,
         queries.requests_for_case(conn, case_id),
+        receipt_data,
     )}
   </div>
 </div>"""
@@ -673,14 +786,37 @@ class Handler(BaseHTTPRequestHandler):
 
         return {key: values[0] for key, values in parsed.items()}
 
-    @staticmethod
-    def _pick_reviewer(requested, reviewers):
-        ids = [row[0] for row in reviewers]
+    def _actor(self, reviewers=None):
+        """Who is acting. From the process, never from the request.
 
-        if requested in ids:
-            return requested
+        Accepts an id or an email so the setting can be readable, and
+        resolves it against the active reviewers. Pinned to someone who
+        is not one of them, this returns nobody: every case check then
+        refuses, which is the safe direction for a misconfiguration.
+        """
+        if reviewers is None:
+            with workqueue.app_connection() as conn:
+                reviewers = workqueue.reviewers(conn)
 
-        return ids[0] if ids else ""
+        bound = (
+            getattr(self.server, "acting_reviewer", "")
+            or config.get(ACTING_REVIEWER_SETTING, "")
+            or ""
+        ).strip()
+
+        if not bound:
+            # Nothing pinned this process to a person. Fall back to a
+            # deterministic choice rather than to whatever was asked
+            # for: unpinned still must not mean browser-chosen.
+            return reviewers[0][0] if reviewers else ""
+
+        wanted = bound.lower()
+
+        for rid, _name, email, _qual, _verify in reviewers:
+            if wanted in (rid.lower(), (email or "").lower()):
+                return rid
+
+        return ""
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"console {fmt % args}\n")
@@ -702,9 +838,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with workqueue.app_connection() as conn:
                 people = workqueue.reviewers(conn)
-                reviewer_id = self._pick_reviewer(
-                    (params.get("reviewer") or [""])[0], people
-                )
+                reviewer_id = self._actor(people)
                 items = inbox.queue(conn)
 
                 if path == "/":
@@ -722,9 +856,20 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 if path.startswith("/request/"):
+                    gap_id = path[len("/request/") :]
+
+                    with conn.cursor() as cur:
+                        gap_case = access.case_of_gap(cur, gap_id)
+
+                        if not access.may_access_case(
+                            cur, reviewer_id, gap_case
+                        ):
+                            self._send(403, ACCESS_DENIED)
+                            return
+
                     rendered = render_request(
                         conn,
-                        path[len("/request/") :],
+                        gap_id,
                         people,
                         reviewer_id,
                         flash,
@@ -784,6 +929,17 @@ class Handler(BaseHTTPRequestHandler):
 
                 if path.startswith("/case/"):
                     case_id = path[len("/case/") :]
+
+                    # Before anything is read. The buttons on this page
+                    # were already guarded; the page itself was not, so
+                    # the private content arrived before the guard did.
+                    with conn.cursor() as cur:
+                        if not access.may_access_case(
+                            cur, reviewer_id, case_id
+                        ):
+                            self._send(403, ACCESS_DENIED)
+                            return
+
                     rendered = render_case(
                         conn, case_id, people, reviewer_id, items, flash
                     )
@@ -829,7 +985,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             form = self._form()
 
-        reviewer_id = form.get("reviewer", "")
+        # Not form.get("reviewer"). A form field naming the actor would
+        # make every grant check below a question about a name the
+        # caller chose.
+        reviewer_id = self._actor()
 
         if path.startswith("/train/"):
             message, kind = self._do_training(path, form)
@@ -855,14 +1014,39 @@ class Handler(BaseHTTPRequestHandler):
 
         message, kind = handler(form)
 
-        query = urllib.parse.urlencode(
-            {"reviewer": reviewer_id, "msg": message, "kind": kind}
-        )
-        self._redirect(f"/case/{case_id}?{query}")
+        query = urllib.parse.urlencode({"msg": message, "kind": kind})
+
+        # Where the outcome is readable. A reviewer refused on this case
+        # cannot read its page either, so returning them to it would
+        # replace the reason with a 403. They go to the inbox, which
+        # they can see, carrying the same message.
+        with workqueue.app_connection() as conn:
+            with conn.cursor() as cur:
+                readable = access.may_access_case(
+                    cur, reviewer_id, case_id
+                )
+
+        destination = f"/case/{case_id}" if readable else "/"
+
+        self._redirect(f"{destination}?{query}")
 
     def _do_draft(self, form):
         try:
             with workqueue.app_connection() as conn:
+                # Composing took no reviewer, so nothing stopped a
+                # visitor having a letter written on a case they cannot
+                # see. The revision names the case; the case is what
+                # needs authorising.
+                with conn.cursor() as cur:
+                    case_id = access.case_of_revision(
+                        cur, form.get("revision_id")
+                    )
+
+                    if not access.may_access_case(
+                        cur, self._actor(), case_id
+                    ):
+                        return (ACCESS_REFUSED, "bad")
+
                 drafting.compose(conn, form["revision_id"])
         except (drafting.DraftingRefused, approval_domain.DraftRefused) as exc:
             return (str(exc), "bad")
@@ -875,7 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = approval_domain.record_decision(
                     conn,
                     form["draft_id"],
-                    form["reviewer"],
+                    self._actor(),
                     form.get("decision", "REJECTED"),
                     form.get("seen_digest", ""),
                     note=form.get("note") or None,
@@ -891,8 +1075,7 @@ class Handler(BaseHTTPRequestHandler):
     def _after_action(self, where, reviewer_id, message, kind):
         """Redirect back with the outcome in the query string."""
         target = (
-            f"{where}?reviewer={urllib.parse.quote(reviewer_id)}"
-            f"&msg={urllib.parse.quote(message[:400])}"
+            f"{where}?msg={urllib.parse.quote(message[:400])}"
             f"&kind={urllib.parse.quote(kind)}"
         )
         self._redirect(target)
@@ -915,10 +1098,17 @@ class Handler(BaseHTTPRequestHandler):
         if not self._upload:
             return ("Choose a file first.", "bad")
 
-        reviewer_id = form.get("reviewer", "")
+        # Whoever this process is bound to. Signing a document
+        # into the corpus is an act of professional authority, so the
+        # identity performing it cannot come off the form.
+        reviewer_id = self._actor()
 
         if not reviewer_id:
-            return ("No reviewer selected, so nothing can be signed.", "bad")
+            return (
+                "This console is not bound to an active reviewer, so "
+                "nothing can be signed.",
+                "bad",
+            )
 
         from app.training import documents as documents_module
 
@@ -995,7 +1185,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = training_store.accept_and_publish(
                     rconn,
                     form.get("candidate_id", ""),
-                    form.get("reviewer", ""),
+                    # The professional recorded against the release.
+                    self._actor(),
                     service_id,
                     form.get("source_locator", ""),
                 )
@@ -1016,7 +1207,7 @@ class Handler(BaseHTTPRequestHandler):
                 training_store.reject(
                     rconn,
                     form.get("candidate_id", ""),
-                    form.get("reviewer", ""),
+                    self._actor(),
                     form.get("note", ""),
                 )
         except training_store.TrainingRefused as exc:
@@ -1041,14 +1232,14 @@ class Handler(BaseHTTPRequestHandler):
                 written = approval_domain.edit_draft(
                     conn,
                     form["draft_id"],
-                    form["reviewer"],
+                    self._actor(),
                     form.get("subject", ""),
                     form.get("body_text", ""),
                 )
                 approval_domain.record_decision(
                     conn,
                     written["draft_id"],
-                    form["reviewer"],
+                    self._actor(),
                     "APPROVED",
                     written["content_digest"],
                     note="edited by the reviewer before approval",
@@ -1080,6 +1271,18 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             with workqueue.app_connection() as conn:
+                # The approval was grant-checked when it was
+                # recorded. The person pressing send was not, until now.
+                with conn.cursor() as cur:
+                    case_id = access.case_of_approval(
+                        cur, form.get("approval_id")
+                    )
+
+                    if not access.may_access_case(
+                        cur, self._actor(), case_id
+                    ):
+                        return (ACCESS_REFUSED, "bad")
+
                 result = dispatcher.dispatch(
                     conn, form["approval_id"], provider
                 )
@@ -1096,8 +1299,21 @@ class Handler(BaseHTTPRequestHandler):
         return (f"Not sent: {result['state']}.", "bad")
 
 
-def make_server(port=DEFAULT_PORT):
-    return ThreadingHTTPServer((HOST, port), Handler)
+def make_server(port=DEFAULT_PORT, acting_reviewer=None):
+    """Bind the console to one acting identity for the life of the process.
+
+    A test that needs a different actor starts a second server rather
+    than passing a different parameter, because passing a parameter is
+    exactly what must not work.
+    """
+    httpd = ThreadingHTTPServer((HOST, port), Handler)
+    httpd.acting_reviewer = acting_reviewer or ""
+
+    return httpd
+
+
+def _flag(argv, name, default=""):
+    return argv[argv.index(name) + 1] if name in argv else default
 
 
 def main(argv):
@@ -1107,7 +1323,9 @@ def main(argv):
         else DEFAULT_PORT
     )
 
-    httpd = make_server(port)
+    httpd = make_server(
+        port, _flag(argv, "--acting-reviewer")
+    )
     host, bound = httpd.server_address[:2]
 
     print(f"Reviewer console on http://{host}:{bound}/")

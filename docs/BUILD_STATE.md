@@ -668,3 +668,113 @@ Still not built, and next:
 Deliberately not being built: embeddings, GraphRAG, AgentCore,
 per-department agents, authentication. Each was considered and each
 would cost more than it returns before the deadline.
+
+
+## P2.2A + P2.2A.1: actionability, identity, receipts
+
+This block supersedes every earlier one, including the paragraph above
+that claims to be current. Everything above is a log of what was true
+when it was written.
+
+**248 checks across sixteen suites, passing from a clean slate.**
+`ACCESS01-08`, `RUNSAFE01-15`, `IDENT01-05`, `SEND01-03`,
+`RECEIPT01-15` and `VIEW13` are new. No migration was required for any
+of it: every table and column these use already existed, and both
+database roles already held the privileges.
+
+### What was wrong, and is now closed
+
+**A failed run's proposal could be presented as work to do.** Three
+separate queries selected "the current proposal for a case" and
+disagreed. The first fix of this defect changed the two that nothing
+renders and missed `inbox.queue`, which is the one `do_GET` builds the
+inbox from, so the suite went green while the console was still wrong.
+On live data the case whose most recent run had FAILED was being shown
+in lane `NEEDS_PROFESSIONAL` — "Anika has no professionally verified
+guidance for this, so it was escalated to you" — and counted as work
+needing a professional. A crash was being reported as a professional
+escalation, and it was also masking a letter that had already been
+drafted from an earlier successful run.
+
+The rule is now `result_state = 'SUCCEEDED'`, defined once in
+`app/domain/actionability.py` and carried by all three selections plus
+`drafting.compose`, which refuses at the point of the act because
+hiding a proposal from a view does not stop its revision id being a
+valid argument. `RUNSAFE11` fails if any query drifts from the
+constant. `RUNSAFE12` splices the old predicate back in and requires it
+to re-admit the in-flight and refused cases.
+
+`<> 'FAILED'` was wrong for a reason worth recording: `agent_runs` has
+four states, the runner commits the proposal through a tool call while
+the run still reads `RUNNING`, and sets the terminal state afterwards
+on an autocommit connection. So a committed revision under a `RUNNING`
+run is an ordinary observable state, and a run that dies between those
+two statements leaves one permanently actionable.
+
+**Browser-supplied reviewer ids carried authority.** In three places,
+not one: case access, the reviewer recorded as professionally verifying
+a knowledge unit, and the reviewer recorded as approving a client
+letter. The acting identity is now resolved once when the process
+starts and request input is not consulted; the hidden fields and link
+parameters that carried it are removed rather than left looking
+load-bearing.
+
+**A decision could not be explained without SQL.** `app/domain/receipt.py`
+projects one artefact from the rows that already own the truth. Nothing
+is stored, so it cannot drift from what it describes. It replaced an
+ad-hoc block on the case page that had been assembling its own subset
+of the same facts, which is the same arrangement that let three queries
+disagree.
+
+### Limits that must be stated, not implied
+
+**The console identity is a controlled, server-bound demo identity. It
+is not authentication.** The acting reviewer comes from
+`CONSOLE_ACTING_REVIEWER` or `--acting-reviewer`, is resolved at
+startup, and no query string or form field can change it. Nothing
+verifies that the person at the keyboard is the reviewer the process is
+bound to. Case grants are only a boundary if the identity being
+checked is not the caller's to choose; that is what changed. Real
+authentication is not built and must not be claimed.
+
+**The inbox listing is not scoped to service or membership.**
+`inbox.queue` returns every matter, with sender address, subject and
+the agent's summary, to whoever opens the console. Case *content* reads
+and every case mutation are authorised per case; the listing is not.
+This was left open deliberately. Filtering it by `reviewer_case_grants`
+would hide ungranted cases from everyone — work silently disappearing
+is worse for a firm than over-disclosure — and it would make case
+grants do routing, which they are not. It needs a person-to-service
+membership concept, which does not exist yet.
+
+**Historical fact state is not reconstructable.** `app.case_facts`
+records when a fact row was created but not when it became `CONFIRMED`.
+So the confirmed facts in a decision receipt are the case's facts as
+they stand now, not provably the ones the run read. Facts the run
+proposed are exact, because those rows carry its `run_id`. The receipt
+carries a `reconstruction_limits` field saying this, and `RECEIPT13`
+fails if it is removed. Closing it properly needs a status-transition
+record or a context manifest bound to each run. Neither exists, and
+historical state has not been reconstructed by inference.
+
+**The five `PROFESSIONALLY_VERIFIED` units carry a provenance caveat.**
+They were signed before the identity fix, through the path where the
+verifying reviewer came from browser input. The signature trigger means
+the recorded reviewer matches the database session that wrote it, so
+the rows are internally consistent and attributable to that session —
+but the reviewer id itself was selectable by whoever was at the
+browser. The units are not deleted or rewritten: the caveat is recorded
+here instead, because editing the evidence to make the story cleaner is
+the failure this project exists to avoid. Units signed after this
+change do not carry the caveat.
+
+### Not done, and not claimed
+
+- No authentication.
+- No tenant isolation. There is one firm in this schema.
+- `AGENT_BLOCKED`, the lane for a run that could not finish, is proven
+  by fixture and has not appeared in live data.
+- The correction receipt is a written contract in
+  `docs/ARCHITECTURE.md`, marked PLANNED. Nothing implements it.
+- Service membership, assignment, work stages and the dashboard are
+  untouched.

@@ -187,6 +187,13 @@ class ContractKey:
 
 CONTRACT = (
     ContractKey(
+        "CONSOLE_ACTING_REVIEWER", "console", False, False,
+        "",
+        "Who the console acts as, by reviewer id or email. Bound "
+        "at startup; no request can change it. Empty binds the "
+        "first active reviewer. Not authentication.",
+    ),
+    ContractKey(
         "POSTGRES_ADMIN_PASSWORD", "database", True, True,
         "change-me-admin",
         "Owns the schema. Used by bootstrap and migrations only.",
@@ -316,10 +323,11 @@ CONTRACT = (
 
 CONTRACT_BY_NAME = {key.name: key for key in CONTRACT}
 
-GROUP_ORDER = ("database", "model", "bedrock", "gmail")
+GROUP_ORDER = ("database", "console", "model", "bedrock", "gmail")
 
 GROUP_TITLES = {
     "database": "PostgreSQL. Required for everything.",
+    "console": "The reviewer console. Who it acts as.",
     "model": "Which model answers. Bedrock is the default.",
     "bedrock": "AWS Bedrock. Required when MODEL_PROVIDER is bedrock.",
     "gmail": "Gmail. Required to ingest real mail or send a real reply.",

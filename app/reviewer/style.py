@@ -136,6 +136,15 @@ body {
 
 .toolbar .spacer { margin-left: auto; }
 
+/* Who the process is acting as. Text, not a control: the acting
+   identity is bound at startup, so there is nothing here to choose. */
+.toolbar .acting {
+  font-size: 12.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  flex: none;
+}
+
 .toolbar .caution {
   font-size: 12px;
   color: var(--wait);

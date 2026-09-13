@@ -305,6 +305,78 @@ makes the ladder worth anything.
 Three attempts at one test fixture were refused by these constraints before one
 was accepted. The refusals were right and the test was wrong each time.
 
+## Two receipts, and the difference between them
+
+A decision receipt is a projection over the rows that already own the
+truth: the run, its tool calls, the revision, the facts, the release. It
+is built by `app/domain/receipt.py`, nothing about it is stored, and the
+same rows always produce the same digest. Fifteen checks in
+`tests/decision_receipt_smoke.py` compare it against direct queries,
+try to make it claim a tool that never ran, and fail if any field
+appears that purports to hold the model's private reasoning.
+
+It deliberately contains no chain-of-thought. Free-form internal
+deliberation is not audit evidence: it cannot be verified, it cannot be
+compared between runs, and recording it as the reason something
+happened would make the account less trustworthy rather than more. What
+is recorded is the observable basis — established facts, merely
+asserted facts, what remained unknown, the units cited, the tools that
+ran and what came back, the prompt and release in force, and what the
+run finally did.
+
+One thing it cannot do, and says so in the receipt itself:
+`app.case_facts` records when a fact row was created but not when it
+became `CONFIRMED`, so the confirmed facts in a receipt are the case's
+facts as they stand now, not provably as they stood when the run read
+them. Facts the run itself proposed are exact, because those rows carry
+its `run_id`. Closing the gap properly needs a status-transition
+record. That does not exist and is not invented; the receipt names the
+limit instead of presenting current state as historical state.
+
+### The correction receipt — PLANNED, not built
+
+When a professional changes what Anika proposed, the change is the more
+valuable of the two records: it is the only place the firm's own
+judgement is visible. The contract below is fixed now because the next
+slice writes against it. Nothing implements it yet, and no claim about
+it should be made.
+
+A correction receipt links to the decision it corrects and preserves:
+
+    parent_receipt_digest      which decision this answers
+    case_id
+    before_digest              the draft or proposal as shown
+    after_digest               the draft or proposal as changed
+    corrected_by               the acting identity, server-bound
+    correction_type            STYLE | CASE_FACT |
+                               PROFESSIONAL_JUDGMENT |
+                               POTENTIAL_REUSABLE_KNOWLEDGE | OTHER
+    reason                     the professional's own words, if given
+    state_changed              which variables moved
+    facts_added_or_removed
+    decision_before
+    decision_after
+    work_impact                routing or stage consequence
+    corrected_at
+
+Two rules matter more than the field list.
+
+**The type is a human judgement, not an inference.** A professional
+rewording a sentence, correcting a fact about one client, and
+establishing a rule the firm will reuse are three different acts, and
+only the third belongs anywhere near Train Anika. Classifying every
+edit as reusable knowledge would let one person's wording become the
+firm's position, which is the failure this whole architecture exists to
+prevent.
+
+**The delta is semantic, not arithmetic.** Comparing the state before a
+correction with the state after means asking which facts changed, which
+unknown became known, which applicability moved, which authority
+changed — not subtracting numbers. Most of these values are
+categorical, three-valued, temporal or set-valued, and attaching
+weights to them would make uncertainty look measured without making it
+measured.
+
 ## What is proven, and what is merely built
 
 A safe result produced by a well-behaved model is not evidence of a safe
@@ -312,7 +384,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 
 **Established**
 
-- **201 checks, fourteen suites, from nothing.** `scripts/verify_clean_slate.py`
+- **248 checks, sixteen suites, from nothing.** `scripts/verify_clean_slate.py`
   builds a throwaway container from the repository alone, runs every check
   against it, and destroys it.
 - **The applicability gate is load-bearing.** With `applicability.assess`
@@ -427,7 +499,7 @@ architecture. A safe result produced while the model is assumed to be wrong is.
 ## Verify it yourself
 
 ```
-# build a throwaway database from this repository, run all 201 checks,
+# build a throwaway database from this repository, run all 248 checks,
 # destroy it. The primary instance is never touched.
 .venv/Scripts/python.exe scripts/verify_clean_slate.py
 

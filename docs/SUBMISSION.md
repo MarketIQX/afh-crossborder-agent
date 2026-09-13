@@ -142,7 +142,7 @@ about the client can never decide which rules govern that client.
 
 ### What is actually proven
 
-**Regression coverage: 201 checks across fourteen suites, passing from
+**Regression coverage: 248 checks across sixteen suites, passing from
 nothing.** This is regression breadth, not evidence that the product
 works — a suite of 188 was green while the function that renders facts
 to a professional could show a proposal as established and crashed on

@@ -23,6 +23,7 @@ NEEDS_DECISION = "NEEDS_DECISION"
 READY_TO_SEND = "READY_TO_SEND"
 QUARANTINED = "QUARANTINED"
 AGENT_WORKING = "AGENT_WORKING"
+AGENT_BLOCKED = "AGENT_BLOCKED"
 WAITING_ON_CLIENT = "WAITING_ON_CLIENT"
 CLOSED = "CLOSED"
 
@@ -33,6 +34,7 @@ LANES = (
     (READY_TO_SEND, "Approved, not sent"),
     (NEEDS_TRIAGE, "Needs triage"),
     (QUARANTINED, "Quarantined"),
+    (AGENT_BLOCKED, "Anika could not finish"),
     (AGENT_WORKING, "Anika is working"),
     (WAITING_ON_CLIENT, "Waiting on the client"),
     (CLOSED, "Closed"),
@@ -47,6 +49,10 @@ LANE_NOTE = {
     READY_TO_SEND: "You approved it. Sending is a separate step.",
     NEEDS_TRIAGE: "Anika would not guess which service applies.",
     QUARANTINED: "The sender has no standing on the case they quoted.",
+    AGENT_BLOCKED: (
+        "The run broke or declined to proceed. There is no recommendation "
+        "to act on, and the attempt is on the case with its outcome."
+    ),
     AGENT_WORKING: "Triaged, not yet reasoned about.",
     WAITING_ON_CLIENT: "We asked the client for something.",
     CLOSED: "Sent, or returned and not resent.",
@@ -87,20 +93,41 @@ latest_revision AS (
         r.created_at
     FROM app.action_proposals p
     JOIN app.proposal_revisions r ON r.proposal_id = p.id
+    JOIN app.agent_runs a ON a.id = r.run_id
+    -- app.domain.actionability.CURRENT_WORK_SQL, and a check fails if
+    -- this drifts from it. Only a run that finished and reached a
+    -- conclusion may supply one. A proposal written by a run that then
+    -- broke, declined, or never ended stays readable on its case; it
+    -- does not get to be the newest thing a professional is asked to
+    -- act on.
+    WHERE a.result_state = 'SUCCEEDED'
     ORDER BY p.case_id, r.created_at DESC
 ),
+latest_run AS (
+    -- The most recent attempt, whatever became of it. This is how the
+    -- lane can tell a run that broke from one still in flight.
+    SELECT DISTINCT ON (case_id)
+        case_id,
+        result_state,
+        failure_reason
+    FROM app.agent_runs
+    ORDER BY case_id, started_at DESC
+),
 latest_draft AS (
-    SELECT DISTINCT ON (lr.case_id)
-        lr.case_id,
+    -- Keyed on the case, not on the current revision. A letter someone
+    -- has already written must not disappear because the filter above
+    -- declined the revision it came from.
+    SELECT DISTINCT ON (p.case_id)
+        p.case_id,
         d.id AS draft_id,
         d.subject AS draft_subject,
         d.recipient,
         d.authored_by,
         d.created_at AS drafted_at
-    FROM latest_revision lr
-    JOIN app.draft_messages d
-        ON d.proposal_revision_id = lr.revision_id
-    ORDER BY lr.case_id, d.created_at DESC
+    FROM app.draft_messages d
+    JOIN app.proposal_revisions r ON r.id = d.proposal_revision_id
+    JOIN app.action_proposals p ON p.id = r.proposal_id
+    ORDER BY p.case_id, d.created_at DESC
 ),
 decision AS (
     SELECT DISTINCT ON (ld.case_id)
@@ -146,10 +173,13 @@ SELECT
     d.revoked_at,
     s.dispatch_state,
     t.outcome                      AS triage_outcome,
-    t.detail                       AS triage_detail
+    t.detail                       AS triage_detail,
+    lrun.result_state              AS run_state,
+    lrun.failure_reason            AS run_failure_reason
 FROM app.cases c
 LEFT JOIN latest_message  m  ON m.case_id  = c.id
 LEFT JOIN latest_revision lr ON lr.case_id = c.id
+LEFT JOIN latest_run      lrun ON lrun.case_id = c.id
 LEFT JOIN latest_draft    ld ON ld.case_id = c.id
 LEFT JOIN decision        d  ON d.case_id  = c.id
 LEFT JOIN sent            s  ON s.case_id  = c.id
@@ -183,7 +213,14 @@ def _lane_for(row):
     if row["draft_id"]:
         return NEEDS_DECISION
 
+    # No current recommendation, and why there is none matters.
+    # A run that broke or declined is not a run still thinking,
+    # and neither is a case nothing has read yet. Labelling all
+    # three the same way tells a professional something untrue.
     if not row["decision_state"]:
+        if row["run_state"] in ("FAILED", "REFUSED"):
+            return AGENT_BLOCKED
+
         return AGENT_WORKING
 
     # States that must never be drafted to a client. The agent reached a
@@ -217,6 +254,8 @@ def queue(conn):
             "received_at": raw["received_at"],
             "correlation_status": raw["correlation_status"],
             "decision_state": raw["decision_state"],
+            "run_state": raw["run_state"],
+            "run_failure_reason": raw["run_failure_reason"] or "",
             "summary": raw["summary"] or "",
             "draft_id": raw["draft_id"],
             "draft_subject": raw["draft_subject"],
