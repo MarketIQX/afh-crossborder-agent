@@ -480,6 +480,60 @@ def cleanup():
     print("QC FIXTURE CLEANUP: PASS")
 
 
+def db11_migrations_end_on_the_intended_schema():
+    """The fact-proposal invariant a clone actually gets.
+
+    026 enforced uniqueness on (case_id, predicate, value_text), which
+    deduplicated business facts rather than making retries idempotent,
+    and deleted rows to satisfy itself. 027 replaces it with a per-
+    operation index so two legitimate evidence events recording the same
+    value both survive.
+
+    Checked as index presence rather than by inspecting the migration
+    files, because what matters is the schema a fresh build produces.
+    """
+    with app_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT indexname FROM pg_indexes "
+                "WHERE schemaname = 'app' AND tablename = 'case_facts'"
+            )
+            names = {row[0] for row in cur.fetchall()}
+
+    wrong = "case_facts_one_proposal_per_value"
+    right = "case_facts_one_assertion_per_operation"
+
+    if wrong in names:
+        raise RuntimeError(
+            f"DB11 FAIL: the withdrawn index {wrong} is present, so this "
+            f"build stops at migration 026"
+        )
+
+    if right not in names:
+        raise RuntimeError(
+            f"DB11 FAIL: {right} is absent; indexes present: "
+            f"{sorted(names)}"
+        )
+
+    with app_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT indexdef FROM pg_indexes "
+                "WHERE schemaname = 'app' AND indexname = %s",
+                (right,),
+            )
+            definition = cur.fetchone()[0]
+
+    for fragment in ("run_id", "predicate", "value_text", "evidence_refs"):
+        if fragment not in definition:
+            raise RuntimeError(
+                f"DB11 FAIL: {right} does not key on {fragment}: "
+                f"{definition}"
+            )
+
+    print("DB11 MIGRATIONS END ON THE INTENDED SCHEMA: PASS")
+
+
 def phase1():
     seed()
 
@@ -492,6 +546,7 @@ def phase1():
     db07_invalid_match_rejected()
     db08_valid_match_transition()
     db09_evidence_preserved()
+    db11_migrations_end_on_the_intended_schema()
 
     print("DATABASE BEHAVIORAL PHASE 1: PASS")
 

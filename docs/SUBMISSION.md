@@ -131,15 +131,23 @@ about the client can never decide which rules govern that client.
   proven against the actual defective letter that prompted them.
 - **Skills** — markdown procedures loaded on demand via `AgentSkills`
   rather than held in every prompt.
-- **Multi-agent** — a `GraphBuilder` graph runs two adversarial verifiers
-  in parallel over extracted knowledge; either can veto, and only
-  unanimity passes.
+- **Multi-agent** — a `GraphBuilder` graph of two adversarial verifiers
+  exists and is exercised by the eval script. It is **not** in the
+  ingestion or publication path: `app/training/pipeline.py` calls the
+  single verifier, so no claim is made that adversarial verification
+  gates publication.
 - **Evals** — a golden suite scored against the verification graph,
-  persisted per run with the prompt digest and git commit.
+  persisted per run with the prompt digest and git commit. It does not
+  gate publication either.
 
 ### What is actually proven
 
-**188 checks across thirteen suites, passing from nothing.** A throwaway
+**Regression coverage: 195 checks across fourteen suites, passing from
+nothing.** This is regression breadth, not evidence that the product
+works — a suite of 188 was green while the function that renders facts
+to a professional could show a proposal as established and crashed on
+structured evidence. The capability claims are listed separately below.
+A throwaway
 PostgreSQL container is built from the repository alone, every check runs
 against it, and the container is destroyed.
 

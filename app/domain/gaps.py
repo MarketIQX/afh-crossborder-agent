@@ -172,12 +172,41 @@ def question_for(evaluation, reasons, hints=None):
         )
 
     if decision.MISSING_KNOWLEDGE in reasons:
-        if evaluation.coverage_gaps:
-            topics = ", ".join(sorted(evaluation.coverage_gaps))
+        # Two different problems, two different people, two different
+        # actions -- and the decision layer already separates them.
+        #
+        # `coverage_gaps` is every in-scope topic with no verified
+        # applicable guidance. `provisional_topics` is the subset where
+        # material does exist and simply has not been signed off. The
+        # difference matters: one needs a professional to establish a
+        # rule, the other needs a professional to verify a rule that is
+        # already written down.
+        #
+        # Collapsing both into "no approved guidance covers this" was
+        # the defect. It would have sent a teaching request for a topic
+        # the firm already holds a source on, which invites exactly the
+        # criticism that the learning loop manufactures gaps out of an
+        # unverified corpus.
+        provisional = set(evaluation.provisional_topics)
+        absent = sorted(set(evaluation.coverage_gaps) - provisional)
+        unverified = sorted(provisional)
+
+        if absent:
             parts.append(
-                f"No approved, applicable guidance covers: {topics}."
+                f"The firm holds no guidance at all on: "
+                f"{', '.join(absent)}. Establishing the rule needs a "
+                f"professional."
             )
-        else:
+
+        if unverified:
+            parts.append(
+                f"The firm holds guidance on {', '.join(unverified)} "
+                f"that no professional has verified, so it cannot "
+                f"support an answer. This needs verification of what is "
+                f"already recorded, not new teaching."
+            )
+
+        if not absent and not unverified:
             parts.append(
                 "The approved guidance available to this case does not "
                 "establish an answer."
