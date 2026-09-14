@@ -4,7 +4,7 @@
 
 This document describes the architecture we can defend for the AWS Agents for Humans submission. It separates current implementation evidence from roadmap intent.
 
-- **Live diagram:** [`architecture/nicole-live-architecture.svg`](architecture/nicole-live-architecture.svg)
+- **Live diagram:** [`architecture/nicole-live-architecture.png`](architecture/nicole-live-architecture.png)
 - **2031 target:** [`architecture/nicole-2031-vision.svg`](architecture/nicole-2031-vision.svg)
 
 The live diagram is the submission claim. The 2031 diagram is the product thesis.

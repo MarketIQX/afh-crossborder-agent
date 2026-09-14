@@ -1,6 +1,6 @@
 # Nicole architecture diagrams
 
-## `nicole-live-architecture.svg`
+## `nicole-live-architecture.png`
 Primary hackathon / Devpost architecture diagram. Status labels are deliberate:
 
 - **BUILT** - implemented in the repository/product surface.

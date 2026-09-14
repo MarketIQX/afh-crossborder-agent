@@ -111,7 +111,7 @@ Other known limits:
 We would rather show those limits than erase the boundary that makes the product trustworthy.
 ## Architecture diagrams
 
-- **Current implementation:** [`docs/architecture/nicole-live-architecture.svg`](architecture/nicole-live-architecture.svg)
+- **Current implementation:** [`docs/architecture/nicole-live-architecture.png`](architecture/nicole-live-architecture.svg)
 - **2031 target architecture:** [`docs/architecture/nicole-2031-vision.svg`](architecture/nicole-2031-vision.svg)
 
 The first is the hackathon evidence claim. The second is the long-term product thesis.

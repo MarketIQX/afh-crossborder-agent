@@ -43,7 +43,7 @@ There is no generic shell, generic HTTP tool, approval tool, knowledge-publicati
 
 ### Live hackathon implementation
 
-![Nicole live architecture](docs/architecture/nicole-live-architecture.svg)
+![Nicole live architecture](docs/architecture/nicole-live-architecture.png)
 
 The live deployment separates five concerns:
 
