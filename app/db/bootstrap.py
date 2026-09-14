@@ -28,7 +28,8 @@ SCHEMA = "app"
 
 def _role_exists(cur, role):
     cur.execute(
-        "SELECT rolcanlogin, rolsuper FROM pg_roles WHERE rolname = %s",
+        "SELECT rolcanlogin, rolsuper, rolreplication "
+        "FROM pg_roles WHERE rolname = %s",
         (role,),
     )
     return cur.fetchone()
@@ -51,10 +52,26 @@ def _ensure_role(cur, role, password):
         )
         return "CREATED"
 
+    _can_login, is_super, can_replicate = existing
+
+    # RDS master users have CREATEROLE but are not PostgreSQL SUPERUSERs.
+    # They therefore cannot alter these protected attributes, even to set
+    # their safe values. Treat an unsafe existing role as a configuration
+    # failure rather than trying to repair it with unavailable authority.
+    if is_super:
+        raise SystemExit(
+            f"BOOTSTRAP ROLE {role}: existing role is SUPERUSER"
+        )
+
+    if can_replicate:
+        raise SystemExit(
+            f"BOOTSTRAP ROLE {role}: existing role has REPLICATION"
+        )
+
     cur.execute(
         sql.SQL(
-            "ALTER ROLE {} WITH LOGIN NOSUPERUSER NOCREATEDB "
-            "NOCREATEROLE NOREPLICATION PASSWORD {}"
+            "ALTER ROLE {} WITH LOGIN NOCREATEDB "
+            "NOCREATEROLE NOINHERIT PASSWORD {}"
         ).format(sql.Identifier(role), sql.Literal(password))
     )
     return "CONVERGED"
@@ -135,18 +152,23 @@ def _verify(cur, settings):
     """Assert the intended end state. Raises on any deviation."""
     failures = []
 
-    role_row = _role_exists(cur, settings.app_user)
+    for role in (settings.app_user, settings.reviewer_user):
+        role_row = _role_exists(cur, role)
 
-    if role_row is None:
-        failures.append(f"role {settings.app_user} missing")
-    else:
-        can_login, is_super = role_row
+        if role_row is None:
+            failures.append(f"role {role} missing")
+            continue
+
+        can_login, is_super, can_replicate = role_row
 
         if not can_login:
-            failures.append(f"role {settings.app_user} cannot log in")
+            failures.append(f"role {role} cannot log in")
 
         if is_super:
-            failures.append(f"role {settings.app_user} is SUPERUSER")
+            failures.append(f"role {role} is SUPERUSER")
+
+        if can_replicate:
+            failures.append(f"role {role} has REPLICATION")
 
     cur.execute(
         "SELECT 1 FROM pg_namespace WHERE nspname = %s",
@@ -156,18 +178,19 @@ def _verify(cur, settings):
     if cur.fetchone() is None:
         failures.append(f"schema {SCHEMA} missing")
 
-    cur.execute(
-        "SELECT has_schema_privilege(%s, %s, 'USAGE'), "
-        "has_schema_privilege(%s, %s, 'CREATE')",
-        (settings.app_user, SCHEMA, settings.app_user, SCHEMA),
-    )
-    has_usage, has_create = cur.fetchone()
+    for role in (settings.app_user, settings.reviewer_user):
+        cur.execute(
+            "SELECT has_schema_privilege(%s, %s, 'USAGE'), "
+            "has_schema_privilege(%s, %s, 'CREATE')",
+            (role, SCHEMA, role, SCHEMA),
+        )
+        has_usage, has_create = cur.fetchone()
 
-    if not has_usage:
-        failures.append(f"{settings.app_user} lacks USAGE on {SCHEMA}")
+        if not has_usage:
+            failures.append(f"{role} lacks USAGE on {SCHEMA}")
 
-    if has_create:
-        failures.append(f"{settings.app_user} holds CREATE on {SCHEMA}")
+        if has_create:
+            failures.append(f"{role} holds CREATE on {SCHEMA}")
 
     if failures:
         raise SystemExit("BOOTSTRAP VERIFY: FAIL\n  " + "\n  ".join(failures))

@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STEPS = (
     ("schema is current", ["-m", "app.db.migrate", "verify"]),
     ("environment contract", ["tests/env_contract_smoke.py"]),
+    ("bootstrap role convergence", ["tests/bootstrap_role_smoke.py"]),
     ("applicability", ["tests/applicability_smoke.py"]),
     ("model provider", ["tests/model_provider_smoke.py"]),
     ("knowledge gaps", ["tests/gap_smoke.py"]),
