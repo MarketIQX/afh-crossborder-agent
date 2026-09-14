@@ -51,10 +51,10 @@ def _when(value):
 
 def upload_form(reviewer_id, service_label):
     return f"""<section class="lane">
-  <header><h2>Teach Anika from a document</h2></header>
+  <header><h2>Teach Nicole from a document</h2></header>
   <p class="note">
     Upload what you would hand a junior: an extract of the Act, a
-    circular, the practice's own note. Anika reads it and proposes what
+    circular, the practice's own note. Nicole reads it and proposes what
     it establishes. Nothing she proposes reaches a client, or even
     reaches her own retrieval, until you have read it against the source
     and signed it.
@@ -148,7 +148,7 @@ def candidate_card(cand, reviewer_id):
     <span class="hint">from {esc(cand["filename"])}</span>
   </div>
 
-  <p class="pane-title">What Anika proposes to learn</p>
+  <p class="pane-title">What Nicole proposes to learn</p>
   <p class="proposal">{esc(cand["guidance"])}</p>
 
   <div class="held {tone}">
@@ -170,7 +170,7 @@ def candidate_card(cand, reviewer_id):
              value="{esc(cand["candidate_id"])}">
       <input type="text" name="source_locator"
              placeholder="Citation for the file, e.g. s.6(1)(a) Income-tax Act">
-      <button type="submit">I confirm this, teach it to Anika</button>
+      <button type="submit">I confirm this, teach it to Nicole</button>
     </form>
     <form method="post" action="/train/reject">
       <input type="hidden" name="reviewer" value="{esc(reviewer_id)}">
@@ -189,7 +189,7 @@ def candidates_section(cands, reviewer_id):
         return """<section class="lane">
   <header><h2>Awaiting your judgment</h2></header>
   <p class="note">
-    Nothing is waiting. Upload a document and Anika will propose what it
+    Nothing is waiting. Upload a document and Nicole will propose what it
     establishes.
   </p>
 </section>"""
@@ -273,7 +273,7 @@ def learning_page(summary, taught, rejected):
     taught_block = (
         f'<div class="matters">{"".join(taught_rows)}</div>'
         if taught_rows
-        else '<p class="note">Nothing has been taught yet, so Anika '
+        else '<p class="note">Nothing has been taught yet, so Nicole '
         'correctly refuses every question and escalates it to you.</p>'
     )
 
@@ -305,12 +305,12 @@ def learning_page(summary, taught, rejected):
 
     return f"""<div class="queue"><div class="queue-inner">
   <section class="lane">
-    <header><h2>What Anika has learned</h2></header>
+    <header><h2>What Nicole has learned</h2></header>
     {metrics}
     <p class="note">
       Coverage is counted in professionally verified units only, because
       that is the only rung the retrieval gate accepts. A topic with
-      nothing verified is a topic Anika will refuse to answer on, which
+      nothing verified is a topic Nicole will refuse to answer on, which
       is the correct behaviour and not a defect.
     </p>
     {coverage_block(summary)}

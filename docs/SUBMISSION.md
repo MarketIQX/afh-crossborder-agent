@@ -1,213 +1,142 @@
-# Anika — submission text
+# Nicole - AWS Agents for Humans submission text
 
-Draft of the Devpost text description. Kept in the repository so it can be
-reviewed against the code rather than written from memory.
+## One-line description
 
----
+**Nicole is a governed learning professional agent for NRI and cross-border tax work: she does the repetitive evidence gathering, reasoning and drafting, while deterministic controls and the professional retain authority over what may be claimed, learned and acted on.**
 
-## Anika
+## The problem
 
-**An agent that does a professional firm's repetitive work, and cannot
-quietly get it wrong.**
+Cross-border professional work repeats constantly but is not safely reducible to FAQ automation. A Chartered Accountant serving NRIs repeatedly reconstructs the same analysis from emails, client facts, effective rules and institutional knowledge: tax residency, return filing, remittances, account status, FEMA and related compliance questions.
 
-Anika reads a cross-border tax firm's email, does the analysis
-unattended, and reaches a person only when the decision is genuinely
-theirs. What makes it a professional agent is not that it answers — it is
-that a wrong answer is structurally refused before a human ever sees it,
-and an honest "I cannot tell you yet, and here is what I need" is a
-first-class outcome rather than a failure.
+The expensive part is not typing an answer. It is determining which facts matter, which rule applies to this person and date, whether the underlying source is trustworthy, and where professional judgment is still required.
 
-### The problem, and who has it
+Ordinary AI creates a different risk: a fluent answer can sound authoritative even when the rule is inapplicable, the evidence is incomplete or the source has never been professionally accepted.
 
-Someone who moves abroad keeps a permanent, low-grade compliance burden
-in the country they left: residency tests to satisfy, returns to file,
-remittance rules to observe. The questions repeat endlessly across
-clients; the answers are judgment-heavy and turn on facts only the client
-holds.
+Nicole was built around one question:
 
-The firms that handle this are small — a few chartered accountants and
-their staff — and they spend their days re-deriving the same analysis
-from scratch, per client, from statute they already know. It is
-repetitive without being mechanical, which is exactly why it has resisted
-automation: the cost of a confident wrong answer is professional
-liability, so nobody sane hands it to a system that cannot be held to a
-standard.
+> **Can an AI agent do the repetitive work of a professional firm without quietly acquiring the authority of the professional?**
+## Who it is for
 
-That is the gap Anika is built for. Not "answer tax questions" — any
-model does that badly. **Make a model's output safe enough for a
-professional to put their name on.**
+Nicole is designed for Chartered Accountants, tax professionals and small professional-services firms serving NRIs and other cross-border clients. These firms need leverage without handing professional authority to a model.
 
-### The failure that shaped the architecture
+## How Nicole works
 
-Early on, a test drove the decision layer directly, with no model
-involved at all. It supplied a rule about **resident** individuals:
-professionally verified, on topic, effective on the date in question. The
-client was a **non-resident**. Every unrelated gate was deliberately
-satisfied.
+A client enquiry is persisted and conservatively correlated to a case. A deterministic router proposes service scope; ambiguity waits for a person. Context is assembled server-side. Nicole then runs as a Strands agent on Amazon Bedrock AgentCore Runtime and uses four bounded tools to read case context, retrieve governed service knowledge, record proposed facts and propose one next action.
 
-The system authorised a supported answer, cited that rule as its basis,
-recorded that no professional review was needed, and gave its reason:
+The model reasons probabilistically, but a deterministic layer independently checks scope, required facts, source verification, three-valued applicability, conflicts and citation requirements. A proposal outside the evidence-permitted set is refused.
 
-> *"in scope, material facts confirmed, effective guidance retrieved, no
-> declared conflict"*
-
-Every clause of that sentence was true. The conclusion was wrong.
-
-It was not a missing check. The layer read five fields about the case and
-**not one of them described the client**, so there was no field in which
-"does this rule even apply to this person?" could be expressed. A
-reviewer auditing the rules would have found nothing missing, because the
-vocabulary had no word for what was wrong.
-
-That is the failure mode Anika is built against: not a model that lies,
-but a governing system whose language is too small to state the
-constraint.
-
-### How it works
-
-Four layers, and only one of them infers.
-
-1. **Deterministic — what the model may know.** An identity gate that
-   refuses to invoke under the account root. A keyword-dominance router
-   with no model in it, which refuses a genuine straddle and sends it to
-   a human. Bounded context assembly that refuses to run rather than drop
-   scope, dates or missing facts to fit a budget. Retrieval scoped by a
-   database view, not a filter.
-2. **Probabilistic — the only inferring layer.** Claude Sonnet 4.5 on
-   Amazon Bedrock, through Strands Agents, with four tools and skills
-   loaded on demand. It proposes **one** decision state and writes the
-   client copy. Both are proposals.
-3. **Deterministic — what the model may claim.** Three-valued
-   applicability, evaluated *before* provenance. A verification bar.
-   A state validator that raises when the model proposes something the
-   evidence does not permit. Copy guards that refuse machine words and
-   statutory citations in a client letter. A content digest rechecked at
-   dispatch.
-4. **Human — the only layer that can say yes.** Approve, reject with a
-   reason, or edit and send with the edit attributed to the reviewer.
-   Publishing knowledge is a human act: the agent cannot promote its own
-   findings to citable.
+The professional sees the case in the Nicole Partner Dashboard: the client's own words, Nicole's proposed outcome, the draft where applicable, tool trajectory and decision evidence. The runtime cannot approve its own work or promote its own learning into verified knowledge.
 
 **Models infer. Deterministic systems govern. Humans authorise.**
 
-Retrieval sits in the middle on purpose. It is how the agent *finds* the
-right guidance, never the authority on whether that guidance may be
-*used*. Making retrieval the authority is the standard mistake:
-everything retrieved becomes usable.
+## Governed learning
 
-### Three-valued applicability
+Nicole can evolve, but she cannot declare her own output to be institutional truth.
 
-The fix to that original failure is the piece we are most confident
-about, because it is provably load-bearing.
+Professionals can upload supported documents (`.pdf`, `.docx`, `.txt`, `.md`). Nicole extracts candidate knowledge and verifies the candidate against captured source evidence. The professional accepts or rejects the candidate. Only accepted material can become professionally verified knowledge and be reused by a fresh agent session.
 
-| Verdict | Meaning | Outcome |
-|---|---|---|
-| `TRUE` | the rule's conditions match what is established | admissible |
-| `FALSE` | they contradict it | excluded, and recorded |
-| `UNKNOWN` | the rule turns on something nobody has established | **becomes a question** |
+Rejected candidates stay rejected. Scanned PDFs with no readable text are refused until an OCR layer exists; OCR is roadmap work, not a current claim.
+## Technical implementation
 
-A boolean has to fold `UNKNOWN` into one of the others, and both choices
-are wrong. As `TRUE`, a rule that may not apply becomes the basis of an
-answer. As `FALSE`, the evidence disappears silently — and if residency
-is unestablished, dropping every resident-rule conceals the fact that
-residency is *precisely* what needs establishing, then reports a
-knowledge gap where none exists.
+Nicole uses Strands as a real agent loop rather than as a wrapper around one fixed model call:
 
-The third value routes to "missing facts" and names the predicate, so the
-system asks. The answer becomes *"I cannot tell you whether this applies
-until we know X"* — true, and useful.
+- four bounded tools with model-driven selection;
+- lifecycle hooks for scope and budget controls;
+- steering/interventions for unsafe or malformed client-facing output;
+- skills loaded on demand rather than one permanently inflated prompt;
+- durable run, tool-call and context records;
+- deterministic validation before a model proposal can become actionable.
 
-Applicability reads only **confirmed** facts. A fact the model proposed
-about the client can never decide which rules govern that client.
+The live AWS foundation is deployed, not hypothetical:
 
-### Built on Strands Agents
+- Amazon Bedrock AgentCore Runtime `NicoleProfessionalAgent` is `READY` in `us-east-1`;
+- Python 3.12, VPC mode and MMDSv2 are active;
+- the runtime is attached to two private subnets;
+- Amazon RDS PostgreSQL 16.14 is non-public and encrypted;
+- RDS accepts PostgreSQL traffic from the runtime security group;
+- AgentCore Identity provider `NicoleGroq` supplies the model credential;
+- AWS Secrets Manager hydrates the application database password at runtime;
+- the runtime uses a dedicated IAM execution role without AdministratorAccess or RDS-admin authority;
+- the deployed artifact is a versioned S3 object whose exact VersionId and SHA-256 were round-trip verified.
 
-- **Agent loop and tools** — four `@tool` functions over a bounded,
-  server-assembled context.
-- **Hooks** — `BeforeToolCallEvent` cancels any call reaching outside the
-  case's bound service, and caps each tool at seven calls per run.
-- **Interventions** — `InterventionHandler` guards that refuse
-  client-facing copy carrying machine words or statutory citations,
-  proven against the actual defective letter that prompted them.
-- **Skills** — markdown procedures loaded on demand via `AgentSkills`
-  rather than held in every prompt.
-- **Multi-agent** — a `GraphBuilder` graph of two adversarial verifiers
-  exists and is exercised by the eval script. It is **not** in the
-  ingestion or publication path: `app/training/pipeline.py` calls the
-  single verifier, so no claim is made that adversarial verification
-  gates publication.
-- **Evals** — a golden suite scored against the verification graph,
-  persisted per run with the prompt digest and git commit. It does not
-  gate publication either.
+The current AgentCore deployment uses Groq-hosted `openai/gpt-oss-120b` through a provider abstraction. The repository also retains an AWS Bedrock adapter, so model provider and professional authority are separate concerns.
+## What is proven
 
-### What is actually proven
+The repository currently passes **345 checks across eighteen suites** from a clean disposable PostgreSQL build. The clean-slate verifier creates the database from repository files, applies migrations, runs the complete regression surface and destroys the target.
 
-**Regression coverage: 345 checks across eighteen suites, passing from
-nothing.** This is regression breadth, not evidence that the product
-works — a suite of 188 was green while the function that renders facts
-to a professional could show a proposal as established and crashed on
-structured evidence. The capability claims are listed separately below.
-A throwaway
-PostgreSQL container is built from the repository alone, every check runs
-against it, and the container is destroyed.
+Important live evidence is separate from those deterministic tests:
 
-The checks that matter most run with **no model and no database**,
-because a safe result produced by a well-behaved model is not evidence of
-a safe architecture — a safe result produced while the model is assumed
-to be wrong is.
+- runtime command execution inside the actual AgentCore microVM resolved the application database secret and authenticated to private RDS;
+- the same runtime database identity was denied access to privileged schema-administration state;
+- a live AgentCore invocation against a nonexistent case returned `RUN_REFUSED` rather than inventing context;
+- the Nicole Partner Dashboard renders Dashboard, Requests, Learning, Train Nicole and Knowledge surfaces;
+- governed training acceptance/rejection and fresh-session reuse are exercised in the test system.
 
-And those checks were themselves tested. With the applicability gate
-removed at runtime, five of them fail, including every one that exists
-because of the original defect. A check that would pass without the fix
-defends nothing.
+The project deliberately separates source-code proof, artifact proof, AWS runtime proof and agent-behavior proof. `READY` is not presented as an end-to-end case result, and 345 deterministic checks are not presented as stochastic reliability.
 
-Separation of powers is enforced by database privilege rather than
-application code, because a code check holds only for the paths someone
-remembered to route through it. Read from the live catalogue: the agent
-runtime holds **no privilege of any kind** on the knowledge table, cannot
-write an approval, and cannot alter a fact it proposed. A reviewer cannot
-author the agent's proposal. **No `DELETE` grant exists anywhere in the
-schema** for either role.
+## Creativity and originality
 
-### What it does not do yet
+The core design idea is **probabilistic reasoning with deterministic authority**.
 
-Stated because leaving it out would overclaim.
+The interesting part is not adding another retrieval layer. It is making authority explicit:
 
-- Applicability now **excludes on real rows** — a verified rule about
-  residents is refused for a confirmed non-resident, through real context
-  assembly and retrieval, with the ground recorded. But no unit in the live
-  corpus carries a restriction yet, so on today's data every unit still
-  applies to everyone. What is missing is reviewer tagging at sign-off, not
-  the mechanism.
-- **A reviewer can confirm a fact, through the database only.** That grant
-  was absent until now, which made a supported answer unreachable on any
-  input. The console route to do it from the interface does not exist yet.
-- **The applicability field means less than tax applicability.** A `TRUE`
-  verdict currently makes a rule a citable basis, which is sufficiency
-  semantics. A professional review refused to tag the deemed-residency rule
-  because Indian citizenship is necessary but not sufficient under the
-  Income-tax Act 2025 — the rule also turns on an income threshold and on
-  non-liability to tax elsewhere. That rule is deliberately untagged rather
-  than half-encoded. Exclusion and asking are sound; only admission
-  overclaims.
-- **Rules are dated by publication, not by statutory force, and the
-  material date is the enquiry date rather than the tax year.** The temporal
-  mechanism exists and is wired to the wrong dates.
-- Two applicability dimensions, exact-match vocabulary. Treaty country,
-  income type and entity type have no expression.
-- One corridor in scope. Anything outside it is refused honestly and
-  drafted to a human, because an agent that guesses outside its
-  competence is worse than no agent.
+- proposed facts cannot silently become confirmed facts;
+- retrieved material cannot silently become admissible evidence;
+- model-selected wording cannot silently become approved client communication;
+- candidate learning cannot silently become firm knowledge;
+- a professional decision leaves durable evidence about the case, tools, sources and state that produced it.
 
-### What is next
+This turns "human in the loop" from a button at the end into a separation-of-powers architecture.
+## Potential impact
 
-Applicability at sign-off, so a reviewer sets who a rule is for while
-they are already reading it. Fact confirmation in the console, which
-turns the gate from proven to useful. Propositions rather than units as
-the atom of knowledge, so a citation points at one rule instead of three.
+For the professional, Nicole reduces repeated reading, retrieval and drafting while keeping consequential judgment visible and attributable. For the firm, accepted learning becomes reusable institutional knowledge instead of remaining trapped in inboxes or individual memory. For the client, the system is designed to prefer a bounded clarification or escalation over a confident unsupported answer.
 
----
+The long-term product direction is a multi-tenant professional-intelligence platform for firms handling tax, FEMA, global mobility and adjacent judgment-heavy workflows. That roadmap is shown separately from the live submission architecture so future ambition is not confused with current implementation evidence.
 
-**Repository:** https://github.com/MarketIQX/afh-crossborder-agent ·
-MIT · architecture in
-[docs/ARCHITECTURE.md](https://github.com/MarketIQX/afh-crossborder-agent/blob/main/docs/ARCHITECTURE.md)
+## Current limitations - stated explicitly
+
+A successful unseen NRI case has **not yet completed end-to-end on the live AgentCore deployment**. The live RDS currently contains the deployed service definitions but zero operational mailbox, reviewer, case and agent-run rows. The runtime correctly lacks authority to bootstrap those administrative rows itself.
+
+We therefore do not claim that `READY` means the entire case workflow is live. The remaining valid live sequence is operator bootstrap through the intended administrative boundary, a synthetic enquiry through normal persistence/triage, AgentCore invocation, model/tool execution, proposal persistence and independent receipt verification.
+
+Other known limits:
+
+- the Partner Dashboard has server-bound acting identity but no production authentication;
+- `/knowledge` exists but is still a placeholder rather than the finished knowledge explorer;
+- scanned-document OCR is not implemented;
+- runtime security-group egress is broader than the desired production least-privilege posture;
+- full native OpenTelemetry/AgentCore observability and repeated pass^k agent acceptance are not yet integrated;
+- the 2031 architecture is a target architecture, not an implementation claim.
+
+We would rather show those limits than erase the boundary that makes the product trustworthy.
+## Architecture diagrams
+
+- **Current implementation:** [`docs/architecture/nicole-live-architecture.svg`](architecture/nicole-live-architecture.svg)
+- **2031 target architecture:** [`docs/architecture/nicole-2031-vision.svg`](architecture/nicole-2031-vision.svg)
+
+The first is the hackathon evidence claim. The second is the long-term product thesis.
+
+## Demo narrative
+
+The five-minute demo should show one coherent story:
+
+```text
+problem and audience
+-> Nicole Partner Dashboard
+-> one NRI case and the bounded agent/tool path
+-> professional review and authority boundary
+-> governed learning: accept one candidate, reject another
+-> reuse of accepted knowledge
+-> live AWS/AgentCore architecture evidence
+-> 2031 target architecture
+```
+
+Close with:
+
+> **Reasoning can be probabilistic. Authority cannot.**
+
+## Repository and licence
+
+Public repository: `https://github.com/MarketIQX/afh-crossborder-agent`
+
+Licence: MIT. Project provenance and the fresh-code boundary are documented in `PROVENANCE.md`.

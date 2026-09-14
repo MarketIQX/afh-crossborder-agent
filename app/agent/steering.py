@@ -1,4 +1,4 @@
-"""Steering: a second opinion that can send Anika back before she acts.
+"""Steering: a second opinion that can send Nicole back before she acts.
 
 A hook can only allow or cancel. Steering can do the more useful thing:
 hand the work back with a reason and let the agent try again. Strands
@@ -8,7 +8,7 @@ calls the result an intervention, and the action we mostly want is
 Two handlers live here, and both exist because of a specific defect that
 reached a real person.
 
-`ClientCopyGuard` reads what Anika proposes to say to a client before it
+`ClientCopyGuard` reads what Nicole proposes to say to a client before it
 becomes a draft. The letter that went out asked Priya to supply
 "days present in india preceding four years" and "india sourced income
 present" -- raw database column names, in correspondence, to a client.

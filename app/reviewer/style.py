@@ -751,7 +751,7 @@ textarea { min-height: 190px; }
 
 .metric span { font-size: 12px; color: var(--muted); }
 
-/* ---- where Anika stopped --------------------------------------- */
+/* ---- where Nicole stopped --------------------------------------- */
 
 .stopped {
   background: var(--paper);

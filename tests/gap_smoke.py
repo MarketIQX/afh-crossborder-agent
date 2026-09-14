@@ -20,7 +20,7 @@ permitted by two different branches of `decision.evaluate` -- declared
 topics were declined, or nothing matched the service at all. The first
 can name the topics; the second has nothing to name. Only the first was
 written, so an unroutable enquiry produced "This enquiry asks about ,
-which is outside the service Anika is trained on."
+which is outside the service Nicole is trained on."
 
 That sentence is the interesting kind of wrong. It is not empty, so
 nothing rejected it, and it does not crash anything. It simply tells the
@@ -156,7 +156,7 @@ def gap04_no_reason_asks_a_malformed_question():
     This is the worst case for a branch that formats a list, and it is
     where the real defect lived. The original `OUT_OF_SCOPE` branch
     joined an empty tuple and produced "This enquiry asks about , which
-    is outside the service Anika is trained on." -- not empty, so
+    is outside the service Nicole is trained on." -- not empty, so
     nothing refused it, but it names no topic and tells the reviewer a
     topic was declined when in fact nothing matched the service at all.
 

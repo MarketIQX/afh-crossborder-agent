@@ -1,6 +1,6 @@
 """Deterministic control injected into the agent's own lifecycle.
 
-Until now every limit on Anika lived in two places: the database, which
+Until now every limit on Nicole lived in two places: the database, which
 holds whatever happens, and the inside of each tool, which refuses bad
 arguments after the call has already been made. Both are real. Neither is
 visible where the agent actually runs.

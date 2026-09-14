@@ -1,4 +1,4 @@
-"""What Anika could not answer, recorded so a person can answer it.
+"""What Nicole could not answer, recorded so a person can answer it.
 
 The decision layer already computes why an enquiry cannot be completed
 and writes that onto the proposal revision. Until now nothing turned
@@ -144,7 +144,7 @@ def question_for(evaluation, reasons, hints=None, absent=None):
         # triage rather than a scope explanation.
         #
         # Writing only the first branch produced "This enquiry asks
-        # about , which is outside the service Anika is trained on."
+        # about , which is outside the service Nicole is trained on."
         # for the second. Not empty, so nothing rejected it, and that is
         # what made it dangerous: it reported a declined topic to a
         # reviewer whose actual problem was that the enquiry matched
@@ -154,7 +154,7 @@ def question_for(evaluation, reasons, hints=None, absent=None):
             topics = ", ".join(sorted(evaluation.out_of_scope_topics))
             parts.append(
                 f"This enquiry asks about {topics}, which is outside "
-                f"the service Anika is trained on."
+                f"the service Nicole is trained on."
             )
         else:
             parts.append(

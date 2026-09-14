@@ -1,37 +1,13 @@
-# BUILD STATE
+# BUILD STATE - HISTORICAL ENGINEERING LOG
 
-Single source of operational truth. Architecture documents are reference
-material only. A document cannot turn an unexecuted feature into a pass.
+> **Submission-state note (2026-09-15):** this file is the chronological engineering log and contains historical names, model-provider states and milestone labels from earlier build slices. It is **not** the current submission source of truth. Use [`../README.md`](../README.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md) for current claims, and `docs/architecture/nicole-live-architecture.svg` for the judge-facing live architecture. Historical entries below are intentionally preserved rather than rewritten.
 
-## CURRENT COMMIT
+The last public checkpoint before the final dashboard/documentation pass is commit `4fadd4e5f2974964fd49b3ad56c0c9475e3c9cfd` on `main`. The final dashboard and submission-document changes are still working-tree changes until the final reviewed commit.
 
-`4644768` Require standing for drafting and for revocation, on `main`,
-pushed to the public repository at github.com/MarketIQX/afh-crossborder-agent.
+The current AWS deployment uses Amazon Bedrock AgentCore Runtime with the Groq provider path. Earlier Bedrock/Claude entries below record real earlier engineering evidence but must not be read as the current deployed model path.
 
-Committed on explicit authorisation. Made on a branch rather than on
-`main`, so the default branch is unchanged until someone decides to
-move it.
+## HISTORICAL ACCEPTED MILESTONE (2026-09-11)
 
-**Verified from a clean checkout**, which is what makes the
-reproducibility claim true rather than asserted: the commit was cloned
-into an empty directory, a fresh virtualenv was built from
-`requirements-lock.txt` alone, and the full clean-slate verification was
-run from that clone. The clone carried no `.env` and no uncommitted
-files. All 75 checks passed and the disposable container was destroyed.
-
-    clone HEAD: 7cd9560
-    clone is dirty: 0 file(s)
-    clone has .env: no, correct
-    installed: 71 packages
-    ALL CHECKS: PASS
-
-Note on the evidence manifest: `evidence-20260911T042219Z` was recorded
-immediately before the commit, so its source digests match the committed
-code exactly, while its git fields describe the pre-commit working tree.
-It has not been re-recorded, because a manifest cannot record the commit
-that contains it.
-
-## CURRENT ACCEPTED MILESTONE
 
     M0 COMPLETE
     M1 COMPLETE

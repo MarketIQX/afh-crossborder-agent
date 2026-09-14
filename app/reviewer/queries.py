@@ -266,7 +266,7 @@ def tool_calls(conn, run_id):
 
 
 def open_requests(conn):
-    """What Anika could not answer, oldest first.
+    """What Nicole could not answer, oldest first.
 
     Oldest first on purpose: a queue that shows the newest request at
     the top quietly buries the one that has been waiting longest, which

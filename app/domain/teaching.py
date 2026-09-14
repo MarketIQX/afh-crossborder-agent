@@ -4,7 +4,7 @@ Contract section 3 specifies this letter almost line by line, and the
 specification is stricter than it first looks: every bracketed field is
 a *template* field, and replacing one with an invented value is worse
 than leaving it marked unknown. A reviewer who cannot tell which facts
-Anika actually holds cannot tell which part of the answer is theirs.
+Nicole actually holds cannot tell which part of the answer is theirs.
 
 So nothing here is composed. Every line is read from a stored row -- the
 gap, the revision that caused it, the facts on the case, the release and
@@ -35,7 +35,7 @@ REASON_WORDING = {
         "an operation failed, so the enquiry could not be assessed"
     ),
     decision.OUT_OF_SCOPE: (
-        "the enquiry falls outside the service Anika is trained on"
+        "the enquiry falls outside the service Nicole is trained on"
     ),
     decision.SOURCE_CONFLICT: (
         "approved sources disagree and the conflict is unresolved"
@@ -362,7 +362,7 @@ def _guidance_block(data):
 
 
 def _why_block(data):
-    """Why Anika stopped, in the reviewer's language.
+    """Why Nicole stopped, in the reviewer's language.
 
     The stored reason codes are the decision layer's vocabulary and stay
     in the record. Here they become sentences, because a letter that
@@ -377,12 +377,12 @@ def _why_block(data):
     lines = [f"- {reason}" for reason in reasons]
     lines.append("")
     lines.append(
-        f"Anika's own summary of the position: {data['summary']}"
+        f"Nicole's own summary of the position: {data['summary']}"
     )
     lines.append("")
     lines.append(
         "What the available material does not establish is set out "
-        "under the question above. Anika has not answered this part and "
+        "under the question above. Nicole has not answered this part and "
         "has recorded no conclusion about it."
     )
 

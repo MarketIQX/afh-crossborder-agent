@@ -293,7 +293,7 @@ been written yet.</div>""",
         <div class="row">
           <button type="submit">Save and approve my version</button>
           <span class="hint">Recorded as written by you, replacing
-          Anika's. Sending is still carried out by the runtime, which
+          Nicole's. Sending is still carried out by the runtime, which
           cannot approve.</span>
         </div>
       </div>
@@ -471,11 +471,11 @@ ACCESS_DENIED = (
 )
 
 NAV = (
-    ("/", "Inbox"),
+    ("/", "Dashboard"),
     ("/requests", "Requests"),
     ("/knowledge", "Knowledge"),
     ("/learning", "Learning"),
-    ("/train", "Train Anika"),
+    ("/train", "Train Nicole"),
 )
 
 
@@ -523,7 +523,7 @@ def _matter_row(item, reviewer_id):
     if item["authored_by"] == "REVIEWER":
         by = '<span class="by person">you wrote this</span>'
     elif item["authored_by"] == "AGENT":
-        by = '<span class="by">Anika drafted</span>'
+        by = '<span class="by">Nicole drafted</span>'
 
     return f"""<a class="matter"
    href="/case/{esc(item['case_id'])}">
@@ -548,17 +548,43 @@ ACTIONABLE = (
 )
 
 
-def render_inbox(people, reviewer_id, items, flash=None):
-    """The working day."""
+def _dashboard_metrics_html(metrics):
+    cards = (
+        ("Cases", metrics.get("cases", 0)),
+        ("Needs review", metrics.get("needs_review", 0)),
+        ("Learning candidates", metrics.get("learning_candidates", "n/a")),
+        ("Verified knowledge", metrics.get("verified_knowledge", "n/a")),
+        ("Recent agent runs", metrics.get("recent_agent_runs", "n/a")),
+    )
+    rendered = "".join(
+        f'<div class="metric"><b>{esc(value)}</b><span>{esc(label)}</span></div>'
+        for label, value in cards
+    )
+    return f"""<section class="lane dashboard-summary">
+  <header><h2>Nicole Partner Dashboard</h2><span class="count">Live</span></header>
+  <p class="note">Cases, professional review and governed learning from one control surface.</p>
+  <div class="metrics">{rendered}</div>
+</section>"""
+
+
+def render_inbox(people, reviewer_id, items, flash=None, metrics=None):
+    """The working day, led by the facts a partner needs first."""
+    metrics = metrics or {
+        "cases": len(items),
+        "needs_review": inbox.needs_you(items),
+    }
+    summary = _dashboard_metrics_html(metrics)
+
     if not items:
-        body = """<div class="empty-queue">
+        body = f"""<div class="queue"><div class="queue-inner">{summary}
+<section class="lane"><div class="empty-queue">
   <h1>Nothing has arrived.</h1>
-  When someone emails the practice, Anika reads it, decides what it
+  When someone emails the practice, Nicole reads it, decides what it
   needs, and it appears here. Nothing is sent without you.
-</div>"""
+</div></section></div></div>"""
 
         return page(
-            "Inbox", body, people, reviewer_id, flash, nav="/", counts=0
+            "Dashboard", body, people, reviewer_id, flash, nav="/", counts=0
         )
 
     lanes = []
@@ -578,10 +604,13 @@ def render_inbox(people, reviewer_id, items, flash=None):
 </section>"""
         )
 
-    body = f'<div class="queue"><div class="queue-inner">{"".join(lanes)}</div></div>'
+    body = (
+        f'<div class="queue"><div class="queue-inner">{summary}'
+        f'{"".join(lanes)}</div></div>'
+    )
 
     return page(
-        "Inbox",
+        "Dashboard",
         body,
         people,
         reviewer_id,
@@ -602,6 +631,29 @@ def render_soon(title, explain, people, reviewer_id, nav):
 
 
 SERVICE_KEY = "nri_india_tax_filing"
+
+
+def dashboard_metrics(conn, items):
+    """Project existing database truth onto the partner dashboard."""
+    service_id, _service_label = active_service(conn)
+
+    with workqueue.reviewer_connection() as rconn:
+        learning = training_store.learning_summary(rconn, service_id)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM app.agent_runs "
+            "WHERE started_at >= now() - interval '24 hours'"
+        )
+        recent_runs = cur.fetchone()[0]
+
+    return {
+        "cases": len(items),
+        "needs_review": inbox.needs_you(items),
+        "learning_candidates": learning["pending"],
+        "verified_knowledge": sum(learning["covered"].values()),
+        "recent_agent_runs": recent_runs,
+    }
 
 
 def active_service(conn):
@@ -632,12 +684,12 @@ def render_train(conn, people, reviewer_id, flash=None):
     )
 
     return page(
-        "Train Anika", body, people, reviewer_id, flash, nav="/train"
+        "Train Nicole", body, people, reviewer_id, flash, nav="/train"
     )
 
 
 def render_requests(conn, people, reviewer_id, flash=None):
-    """The queue of things Anika could not answer."""
+    """The queue of things Nicole could not answer."""
     rows = queries.open_requests(conn)
     body = request_views.requests_page(rows)
 
@@ -701,18 +753,18 @@ EMPTY_CASE = {
         "letter it proposes will appear here once it runs.",
     ),
     "RUNNING": (
-        "Anika is still working.",
+        "Nicole is still working.",
         "A run is in progress. Nothing written so far is a "
         "recommendation, so there is nothing to decide yet.",
     ),
     "FAILED": (
-        "Anika could not finish.",
+        "Nicole could not finish.",
         "The run broke before it completed. Whatever it wrote is kept "
         "on the record as evidence of the attempt, but none of it is a "
         "recommendation and no letter can be written from it.",
     ),
     "REFUSED": (
-        "Anika declined to proceed.",
+        "Nicole declined to proceed.",
         "The run stopped deliberately rather than guessing. That "
         "refusal is the outcome, not a recommendation to act on.",
     ),
@@ -895,7 +947,13 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/":
                     self._send(
                         200,
-                        render_inbox(people, reviewer_id, items, flash),
+                        render_inbox(
+                            people,
+                            reviewer_id,
+                            items,
+                            flash,
+                            dashboard_metrics(conn, items),
+                        ),
                     )
                     return
 
@@ -951,20 +1009,20 @@ class Handler(BaseHTTPRequestHandler):
                     titles = {
                         "/knowledge": (
                             "Knowledge",
-                            "What Anika knows, where each piece came from, "
+                            "What Nicole knows, where each piece came from, "
                             "and how far up the verification ladder it "
                             "sits. Not built yet.",
                         ),
                         "/learning": (
                             "Learning",
-                            "What Anika has been taught, by whom, and "
+                            "What Nicole has been taught, by whom, and "
                             "where a lesson has since been reused. Not "
                             "built yet.",
                         ),
                         "/train": (
-                            "Train Anika",
+                            "Train Nicole",
                             "Upload the documents a junior would be given, "
-                            "review what Anika proposes to learn from "
+                            "review what Nicole proposes to learn from "
                             "them, and sign off what is correct. Not "
                             "built yet.",
                         ),
@@ -1173,7 +1231,7 @@ class Handler(BaseHTTPRequestHandler):
             factory = pipeline.build_agent_factory()
         except Exception as exc:  # noqa: BLE001
             return (
-                f"Anika cannot read documents right now: "
+                f"Nicole cannot read documents right now: "
                 f"{exc.__class__.__name__}. The file was not stored, so "
                 f"nothing is half done.",
                 "bad",
@@ -1222,7 +1280,7 @@ class Handler(BaseHTTPRequestHandler):
 
         return (
             f"Read {report['chunks']} passages from "
-            f"{report['filename']}. Anika proposes {report['proposed']} "
+            f"{report['filename']}. Nicole proposes {report['proposed']} "
             f"thing(s) to learn, all awaiting your judgment.{warned}",
             "ok",
         )
@@ -1247,7 +1305,7 @@ class Handler(BaseHTTPRequestHandler):
             return (f"Could not publish: {exc.__class__.__name__}", "bad")
 
         return (
-            f"Taught. Anika may now use this, cited to you, from release "
+            f"Taught. Nicole may now use this, cited to you, from release "
             f"{result['release_id'][:8]}.",
             "ok",
         )

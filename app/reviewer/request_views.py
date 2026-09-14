@@ -80,7 +80,7 @@ def _question_lines(question):
 
 
 def stopped_block(requests, case_id):
-    """Why Anika stopped, at the top of the case.
+    """Why Nicole stopped, at the top of the case.
 
     Returns empty when nothing is outstanding, rather than a reassuring
     panel saying so. A case with no open request has nothing to say here
@@ -110,7 +110,7 @@ def stopped_block(requests, case_id):
 
         blocks.append(
             f"""<div class="stopped">
-  <p class="stopped-eyebrow">Anika stopped here</p>
+  <p class="stopped-eyebrow">Nicole stopped here</p>
   <div class="stopped-why">{_question_lines(question)}</div>
   <div class="stopped-meta">
     {reason_chips(codes)}
@@ -130,7 +130,7 @@ def requests_page(rows):
         return """<div class="queue"><div class="queue-inner">
   <div class="empty-queue">
     <h2>Nothing is waiting</h2>
-    <p>Anika has not needed a professional judgement it could not
+    <p>Nicole has not needed a professional judgement it could not
     make safely. Requests appear here the moment she stops on one.</p>
   </div>
 </div></div>"""
@@ -213,7 +213,7 @@ def request_page(gap_id, reference, case_id, codes, state, question,
   </header>
 
   <section class="block">
-    <h2>What Anika could not establish</h2>
+    <h2>What Nicole could not establish</h2>
     <div class="stopped-why">{_question_lines(question)}</div>
   </section>
 

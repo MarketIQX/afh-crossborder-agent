@@ -195,8 +195,8 @@ def req06_only_open_requests_are_shown_as_waiting():
 
     check(
         "REQ06 ONLY OPEN REQUESTS ARE SHOWN AS WAITING",
-        html.count("Anika stopped here") == 1,
-        f"the block rendered {html.count('Anika stopped here')} time(s) "
+        html.count("Nicole stopped here") == 1,
+        f"the block rendered {html.count('Nicole stopped here')} time(s) "
         f"for one open and one answered request",
     )
 

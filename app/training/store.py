@@ -560,7 +560,7 @@ def _active_or_new_release(cur, service_id, reviewer_id):
 
 
 def learning_summary(conn, service_id):
-    """The curve: what Anika knows, and whether it is usable."""
+    """The curve: what Nicole knows, and whether it is usable."""
     with conn.cursor() as cur:
         cur.execute(
             """

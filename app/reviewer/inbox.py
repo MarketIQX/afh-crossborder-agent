@@ -30,12 +30,12 @@ CLOSED = "CLOSED"
 # Ordered by who is blocked. The reviewer's own work first.
 LANES = (
     (NEEDS_DECISION, "Needs your decision"),
-    (NEEDS_PROFESSIONAL, "Anika cannot answer this"),
+    (NEEDS_PROFESSIONAL, "Nicole cannot answer this"),
     (READY_TO_SEND, "Approved, not sent"),
     (NEEDS_TRIAGE, "Needs triage"),
     (QUARANTINED, "Quarantined"),
-    (AGENT_BLOCKED, "Anika could not finish"),
-    (AGENT_WORKING, "Anika is working"),
+    (AGENT_BLOCKED, "Nicole could not finish"),
+    (AGENT_WORKING, "Nicole is working"),
     (WAITING_ON_CLIENT, "Waiting on the client"),
     (CLOSED, "Closed"),
 )
@@ -43,11 +43,11 @@ LANES = (
 LANE_NOTE = {
     NEEDS_DECISION: "A letter is drafted and waiting for you.",
     NEEDS_PROFESSIONAL: (
-        "Anika has no professionally verified guidance for this, "
+        "Nicole has no professionally verified guidance for this, "
         "so it was escalated to you rather than answered."
     ),
     READY_TO_SEND: "You approved it. Sending is a separate step.",
-    NEEDS_TRIAGE: "Anika would not guess which service applies.",
+    NEEDS_TRIAGE: "Nicole would not guess which service applies.",
     QUARANTINED: "The sender has no standing on the case they quoted.",
     AGENT_BLOCKED: (
         "The run broke or declined to proceed. There is no recommendation "

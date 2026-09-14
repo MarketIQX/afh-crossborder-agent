@@ -1,4 +1,4 @@
-"""Why Anika decided what she decided, assembled from the record.
+"""Why Nicole decided what she decided, assembled from the record.
 
 A professional should not need six joins to answer that question, and
 the answer should not be a model's account of its own thinking. So this

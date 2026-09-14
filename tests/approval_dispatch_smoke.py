@@ -357,7 +357,7 @@ def approve03_reviewer_cannot_author_as_the_agent():
     """A reviewer may write, but only as themselves.
 
     Attribution a writer can choose is not attribution. If a person can
-    label their own words as the machine's, "Anika drafted this" means
+    label their own words as the machine's, "Nicole drafted this" means
     nothing and the trail from the agent's words to the words sent is
     fiction.
     """
