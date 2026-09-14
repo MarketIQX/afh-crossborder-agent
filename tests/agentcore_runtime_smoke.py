@@ -37,13 +37,26 @@ def result(state="SUCCEEDED", failure_reason=None):
 def invoke(payload, side_effect=None, run_result=None):
     with patch.object(agentcore_runtime, "BedrockStrandsModel") as model:
         with patch.object(
-            agentcore_runtime.runner,
-            "execute",
-            side_effect=side_effect,
-            return_value=run_result or result(),
-        ) as execute:
-            response = agentcore_runtime.invoke(payload)
-            return response, model, execute
+            agentcore_runtime.runtime_secrets,
+            "hydrate_postgres_app_password",
+        ) as hydrate:
+            with patch.object(
+                agentcore_runtime.runner,
+                "execute",
+                side_effect=side_effect,
+                return_value=run_result or result(),
+            ) as execute:
+                response = agentcore_runtime.invoke(payload)
+                expected_hydrations = (
+                    0 if response.get("error") == "INVALID_REQUEST" else 1
+                )
+                if hydrate.call_count != expected_hydrations:
+                    raise RuntimeError(
+                        "runtime secrets hydrated "
+                        f"{hydrate.call_count} times, expected "
+                        f"{expected_hydrations}"
+                    )
+                return response, model, execute
 
 
 def test_valid_request_delegates_once():

@@ -216,7 +216,16 @@ CONTRACT = (
     ContractKey(
         "POSTGRES_APP_PASSWORD", "database", True, True,
         "change-me-app",
-        "The runtime role. Can draft and dispatch, cannot approve.",
+        "The runtime role. Can draft and dispatch, cannot approve. Local "
+        "development may set it directly; AgentCore resolves it from "
+        "POSTGRES_APP_SECRET_ARN before any database connection.",
+    ),
+    ContractKey(
+        "POSTGRES_APP_SECRET_ARN", "database", False, False,
+        "arn:aws:secretsmanager:us-east-1:000000000000:secret:nicole-app-db",
+        "Optional in local development. AgentCore uses this exact secret "
+        "for POSTGRES_APP_PASSWORD instead of placing the password in "
+        "runtime environment variables.",
     ),
     ContractKey(
         "POSTGRES_REVIEWER_PASSWORD", "database", True, True,
@@ -263,9 +272,15 @@ CONTRACT = (
     ),
     ContractKey(
         "GROQ_API_KEY", "model", False, True, "change-me-groq-key",
-        "Read only when MODEL_PROVIDER is groq. Requires the provider "
-        "extra: pip install 'strands-agents[openai]'. Groq supplies "
-        "inference only; Strands keeps the agent loop and the tools.",
+        "Local-development credential for MODEL_PROVIDER=groq. AgentCore "
+        "should leave this unset and use AGENTCORE_GROQ_API_KEY_PROVIDER "
+        "so the key never appears in runtime environment variables.",
+    ),
+    ContractKey(
+        "AGENTCORE_GROQ_API_KEY_PROVIDER", "model", False, False,
+        "NicoleGroq",
+        "AgentCore Identity API-key provider name. Used only when Groq "
+        "is selected and GROQ_API_KEY is absent.",
     ),
     ContractKey(
         "GROQ_MODEL_ID", "model", False, False, "openai/gpt-oss-120b",

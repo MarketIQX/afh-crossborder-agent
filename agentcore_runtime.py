@@ -7,6 +7,7 @@ transport payload and returns a deliberately bounded execution summary.
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
+from app import runtime_secrets
 from app.agent import runner
 from app.agent.bedrock import BedrockStrandsModel
 
@@ -79,6 +80,7 @@ def invoke(payload):
     case_id, operation_id = request
 
     try:
+        runtime_secrets.hydrate_postgres_app_password()
         result = runner.execute(
             BedrockStrandsModel(),
             case_id,

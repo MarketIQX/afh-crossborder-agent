@@ -181,6 +181,59 @@ def _build_anthropic(model_id, max_tokens, temperature):
     return model, descriptor
 
 
+def _agentcore_api_key(provider_name):
+    """Retrieve Groq's key from AgentCore Identity without persisting it.
+
+    The Runtime supplies the workload access token to the SDK context.
+    Local development keeps using GROQ_API_KEY and never enters here.
+    """
+    try:
+        from bedrock_agentcore.identity.auth import requires_api_key
+    except ImportError as exc:
+        raise ProviderUnavailable(
+            "AGENTCORE_GROQ_API_KEY_PROVIDER is configured but the "
+            "AgentCore SDK is not installed"
+        ) from exc
+
+    @requires_api_key(provider_name=provider_name, into="api_key")
+    def receive(*, api_key):
+        return api_key
+
+    try:
+        key = (receive() or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        raise ProviderUnavailable(
+            "AgentCore Identity could not supply GROQ_API_KEY: "
+            f"{exc.__class__.__name__}"
+        ) from exc
+
+    if not key:
+        raise ProviderUnavailable(
+            "AgentCore Identity returned an empty GROQ_API_KEY"
+        )
+
+    return key
+
+
+def _resolve_groq_key():
+    direct = (config.get("GROQ_API_KEY", "") or "").strip()
+    if direct:
+        return direct
+
+    provider_name = (
+        config.get("AGENTCORE_GROQ_API_KEY_PROVIDER", "") or ""
+    ).strip()
+    if provider_name:
+        return _agentcore_api_key(provider_name)
+
+    raise ProviderUnavailable(
+        "MODEL_PROVIDER is groq but neither GROQ_API_KEY nor "
+        "AGENTCORE_GROQ_API_KEY_PROVIDER is set. Nothing is substituted, "
+        "because a run must not be recorded against a provider that did "
+        "not answer it."
+    )
+
+
 def _build_groq(model_id, max_tokens, temperature):
     """Groq through Strands' own OpenAI-compatible provider.
 
@@ -214,14 +267,7 @@ def _build_groq(model_id, max_tokens, temperature):
             f"{OPENAI_INSTALL_HINT}"
         ) from exc
 
-    key = (config.get("GROQ_API_KEY", "") or "").strip()
-
-    if not key:
-        raise ProviderUnavailable(
-            f"MODEL_PROVIDER is {GROQ} but GROQ_API_KEY is not set. "
-            f"Nothing is substituted, because a run must not be "
-            f"recorded against a provider that did not answer it."
-        )
+    key = _resolve_groq_key()
 
     resolved = model_id or config.get(
         "GROQ_MODEL_ID", DEFAULT_GROQ_MODEL_ID

@@ -440,7 +440,18 @@ def auto10_loop_drafts_only_client_facing_decisions():
             cur.execute("SELECT id::text FROM app.draft_messages")
             before = {row[0] for row in cur.fetchall()}
 
-        loop.draft_letters(conn, report)
+        # AUTO10 tests the drafting rule, not the production batch size.
+        # Earlier suites intentionally leave inspectable fixtures until the
+        # end of run_all, so the global queue can contain more than the
+        # normal ten-per-cycle budget. Temporarily widen only this test's
+        # budget so its own two cases cannot be displaced by unrelated
+        # fixtures; production keeps the bounded limit.
+        original_limit = loop.MAX_DRAFTS_PER_CYCLE
+        loop.MAX_DRAFTS_PER_CYCLE = 1000
+        try:
+            loop.draft_letters(conn, report)
+        finally:
+            loop.MAX_DRAFTS_PER_CYCLE = original_limit
 
     with admin() as conn:
         with conn.cursor() as cur:

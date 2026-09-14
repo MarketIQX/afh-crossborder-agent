@@ -1,4 +1,4 @@
-"""MODEL01-MODEL19. Changing who answers must not change what is asked.
+"""MODEL01-MODEL21. Changing who answers must not change what is asked.
 
 The competition requires Strands Agents as its foundation and describes
 Amazon Bedrock and AgentCore as encouraged rather than required. Bedrock
@@ -660,6 +660,59 @@ def model19_every_provider_resolves_with_nothing_configured():
     )
 
 
+def model20_direct_groq_key_wins_over_agentcore_identity():
+    """Local development must not contact AgentCore when a key is present."""
+    original = with_config({"GROQ_API_KEY": "placeholder-not-real"})
+    original_fetch = model_provider._agentcore_api_key
+    model_provider._agentcore_api_key = lambda _name: (_ for _ in ()).throw(
+        RuntimeError("identity should not be called")
+    )
+    try:
+        _, descriptor = model_provider.build(
+            max_tokens=64, provider=model_provider.GROQ
+        )
+        outcome = descriptor.get("provider")
+    except Exception as exc:  # noqa: BLE001
+        outcome = f"ERROR {exc.__class__.__name__}: {exc}"
+    finally:
+        model_provider._agentcore_api_key = original_fetch
+        restore(original)
+
+    check(
+        "MODEL20 DIRECT GROQ KEY PRECEDES AGENTCORE IDENTITY",
+        outcome == model_provider.GROQ,
+        f"outcome={outcome!r}",
+    )
+
+
+def model21_agentcore_identity_can_supply_groq_key():
+    """Runtime may obtain the key from AgentCore Identity, never from env."""
+    seen = []
+    original = with_config({"AGENTCORE_GROQ_API_KEY_PROVIDER": "NicoleGroq"})
+    original_fetch = model_provider._agentcore_api_key
+
+    def fake_fetch(name):
+        seen.append(name)
+        return "identity-placeholder-not-real"
+
+    model_provider._agentcore_api_key = fake_fetch
+    try:
+        _, descriptor = model_provider.build(
+            max_tokens=64, provider=model_provider.GROQ
+        )
+    finally:
+        model_provider._agentcore_api_key = original_fetch
+        restore(original)
+
+    check(
+        "MODEL21 AGENTCORE IDENTITY CAN SUPPLY GROQ KEY",
+        seen == ["NicoleGroq"]
+        and descriptor.get("provider") == model_provider.GROQ
+        and "api_key" not in descriptor,
+        f"seen={seen!r} descriptor={descriptor!r}",
+    )
+
+
 CHECKS = (
     model01_bedrock_is_still_the_default,
     model02_historical_arguments_are_reproduced_exactly,
@@ -680,6 +733,8 @@ CHECKS = (
     model17_the_groq_descriptor_names_what_answered,
     model18_groq_is_contained_by_the_boundary,
     model19_every_provider_resolves_with_nothing_configured,
+    model20_direct_groq_key_wins_over_agentcore_identity,
+    model21_agentcore_identity_can_supply_groq_key,
 )
 
 

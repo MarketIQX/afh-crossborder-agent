@@ -206,7 +206,8 @@ def _revisions_awaiting_a_draft(conn, limit):
                 SELECT DISTINCT ON (p.case_id)
                     r.id AS revision_id,
                     r.decision_state,
-                    c.reference
+                    c.reference,
+                    r.created_at
                 FROM app.action_proposals p
                 JOIN app.proposal_revisions r ON r.proposal_id = p.id
                 JOIN app.cases c ON c.id = p.case_id
@@ -219,6 +220,7 @@ def _revisions_awaiting_a_draft(conn, limit):
                   SELECT 1 FROM app.draft_messages d
                   WHERE d.proposal_revision_id = latest.revision_id
               )
+            ORDER BY created_at ASC, revision_id ASC
             LIMIT %s
             """,
             (list(CLIENT_FACING_STATES), limit),
