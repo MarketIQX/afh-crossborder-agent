@@ -40,6 +40,7 @@ STEPS = (
     ("case access", ["tests/case_access_smoke.py", "phase1"]),
     ("decision receipt", ["tests/decision_receipt_smoke.py", "phase1"]),
     ("agent context", ["tests/agent_context_smoke.py", "phase1"]),
+    ("training reuse", ["tests/training_reuse_smoke.py"]),
     ("enquiry eval contract",
      ["tests/enquiry_eval_contract_smoke.py"]),
     ("autonomy", ["tests/autonomy_smoke.py", "phase1"]),
