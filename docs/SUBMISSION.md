@@ -109,6 +109,8 @@ Other known limits:
 - the 2031 architecture is a target architecture, not an implementation claim.
 
 We would rather show those limits than erase the boundary that makes the product trustworthy.
+
+Evaluation is the next major engineering layer. We plan to add native Strands evaluation tooling, a professionally curated held-out corpus with scored outcomes, repeated AgentCore trajectory evaluation, pass at k reliability measurement, prompt-injection and cross-case adversarial suites, and latency, cost and tool-call scorecards. These are deliberately not claimed as complete in the current submission.
 ## Architecture diagrams
 
 - **Current implementation:** [`docs/architecture/nicole-live-architecture.png`](architecture/nicole-live-architecture.svg)

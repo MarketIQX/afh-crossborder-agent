@@ -155,6 +155,8 @@ synthetic enquiry -> legitimate persistence/triage -> AgentCore invocation
 ```
 
 Repeated stochastic/adversarial acceptance follows that successful live case; deterministic unit/regression coverage is not being misrepresented as pass^k behavioral reliability.
+
+Evaluation is the next major engineering layer. We plan to add native Strands evaluation tooling, a professionally curated held-out corpus with scored outcomes, repeated AgentCore trajectory evaluation, pass at k reliability measurement, prompt-injection and cross-case adversarial suites, and latency, cost and tool-call scorecards. These are deliberately not claimed as complete in the current submission.
 ## Adversarial audit: what we would defend
 
 ### What was assumed
